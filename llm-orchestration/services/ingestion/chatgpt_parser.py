@@ -1,0 +1,217 @@
+"""
+ChatGPT Share Link Parser
+
+Fetches and parses shared ChatGPT conversations from chatgpt.com/share/* URLs.
+"""
+
+import logging
+import re
+from typing import List, Dict, Any, Optional
+from datetime import datetime
+
+import httpx
+
+from .models import BaseParser, ConversationChunk
+
+logger = logging.getLogger(__name__)
+
+
+class ChatGPTShareParser(BaseParser):
+    """
+    Parser for ChatGPT shared conversation links.
+    
+    Fetches the conversation JSON from chatgpt.com/backend-api/share/{id}
+    and converts it into ConversationChunks.
+    """
+    
+    def __init__(self, timeout: int = 30):
+        self.timeout = timeout
+    
+    @property
+    def source_type(self) -> str:
+        return "chatgpt"
+    
+    async def parse(self, source: str, **kwargs) -> List[ConversationChunk]:
+        """
+        Parse a ChatGPT share URL.
+        
+        Args:
+            source: ChatGPT share URL (e.g., https://chatgpt.com/share/abc123)
+            
+        Returns:
+            List of ConversationChunk objects (user messages paired with assistant responses)
+        """
+        share_id = self._extract_share_id(source)
+        if not share_id:
+            raise ValueError(f"Invalid ChatGPT share URL: {source}")
+        
+        logger.info(f"Fetching ChatGPT conversation: {share_id}")
+        
+        conversation_data = await self._fetch_conversation(share_id)
+        chunks = self._parse_conversation(conversation_data)
+        
+        logger.info(f"Parsed {len(chunks)} conversation chunks from ChatGPT share")
+        return chunks
+    
+    def _extract_share_id(self, url: str) -> Optional[str]:
+        """Extract the share ID from a ChatGPT share URL."""
+        patterns = [
+            r'chatgpt\.com/share/([a-zA-Z0-9\-]+)',
+            r'chatgpt\.com/c/([a-zA-Z0-9\-]+)',
+            r'^([a-zA-Z0-9\-]+)$',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
+        
+        return None
+    
+    async def _fetch_conversation(self, share_id: str) -> Dict[str, Any]:
+        """Fetch conversation JSON from ChatGPT backend API."""
+        api_url = f"https://chatgpt.com/backend-api/share/{share_id}"
+        
+        # Add browser-like headers to avoid 403 Forbidden
+        # Don't set Accept-Encoding - let httpx handle compression automatically
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': f'https://chatgpt.com/share/{share_id}',
+            'Origin': 'https://chatgpt.com',
+        }
+        
+        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
+            try:
+                response = await client.get(api_url, headers=headers)
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 404:
+                    raise ValueError(f"ChatGPT conversation not found: {share_id}")
+                raise ValueError(f"Failed to fetch ChatGPT conversation: {e}")
+            except httpx.RequestError as e:
+                raise ValueError(f"Network error fetching ChatGPT conversation: {e}")
+    
+    def _parse_conversation(self, data: Dict[str, Any]) -> List[ConversationChunk]:
+        """
+        Parse the ChatGPT conversation JSON into ConversationChunks.
+        
+        The JSON structure is a tree of messages in the 'mapping' field.
+        Each message has an id, parent, children, and message content.
+        """
+        title = data.get('title', 'Untitled Conversation')
+        create_time = data.get('create_time')
+        mapping = data.get('mapping', {})
+        
+        if not mapping:
+            logger.warning("Empty conversation mapping")
+            return []
+        
+        # Build the conversation thread by following parent-child relationships
+        messages = self._build_message_thread(mapping)
+        
+        # Pair user messages with assistant responses
+        chunks = []
+        i = 0
+        while i < len(messages):
+            msg = messages[i]
+            
+            # Skip system messages
+            if msg['role'] == 'system':
+                i += 1
+                continue
+            
+            # User message
+            if msg['role'] == 'user':
+                user_content = msg['content']
+                user_timestamp = msg.get('timestamp')
+                
+                # Look ahead for assistant response
+                assistant_content = None
+                if i + 1 < len(messages) and messages[i + 1]['role'] == 'assistant':
+                    assistant_content = messages[i + 1]['content']
+                    i += 2
+                else:
+                    i += 1
+                
+                if user_content:
+                    chunk = ConversationChunk(
+                        content=user_content,
+                        context=assistant_content,
+                        timestamp=user_timestamp,
+                        source_type=self.source_type,
+                        metadata={
+                            'conversation_title': title,
+                            'conversation_create_time': create_time,
+                        }
+                    )
+                    chunks.append(chunk)
+            else:
+                i += 1
+        
+        return chunks
+    
+    def _build_message_thread(self, mapping: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Build a linear thread of messages from the tree structure.
+        
+        ChatGPT stores conversations as a tree (for branching). We follow
+        the main thread by starting from the root and following the first child.
+        """
+        # Find root node (has no parent or parent is root)
+        root_id = None
+        for node_id, node in mapping.items():
+            parent = node.get('parent')
+            if parent is None or parent == node_id:
+                root_id = node_id
+                break
+        
+        if not root_id:
+            logger.warning("Could not find root node in conversation")
+            return []
+        
+        # Walk the tree depth-first, following the first child
+        messages = []
+        current_id = root_id
+        visited = set()
+        
+        while current_id and current_id not in visited:
+            visited.add(current_id)
+            node = mapping.get(current_id)
+            
+            if not node:
+                break
+            
+            # Extract message content
+            message_data = node.get('message')
+            if message_data:
+                role = message_data.get('author', {}).get('role')
+                content_data = message_data.get('content', {})
+                
+                # Extract text from parts
+                parts = content_data.get('parts', [])
+                content = ' '.join(str(part) for part in parts if part).strip()
+                
+                # Extract timestamp
+                create_time = message_data.get('create_time')
+                timestamp = None
+                if create_time:
+                    try:
+                        timestamp = datetime.fromtimestamp(create_time).isoformat()
+                    except (ValueError, OSError):
+                        pass
+                
+                if content and role:
+                    messages.append({
+                        'role': role,
+                        'content': content,
+                        'timestamp': timestamp,
+                    })
+            
+            # Move to first child
+            children = node.get('children', [])
+            current_id = children[0] if children else None
+        
+        return messages

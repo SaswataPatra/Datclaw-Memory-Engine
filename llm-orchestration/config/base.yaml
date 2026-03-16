@@ -1,0 +1,753 @@
+# DAPPY LLM Orchestration Service - Base Configuration
+# Phase 1 MVP
+
+service:
+  name: "dappy-llm-orchestrator"
+  version: "1.0.0"
+  environment: "development"  # development | staging | production
+  port: 8001
+
+# Authentication
+auth:
+  secret_key: "${JWT_SECRET_KEY:dappy-dev-secret-change-in-production}"
+  algorithm: "HS256"
+  token_expire_minutes: 1440  # 24 hours
+
+# Memory Manager Service (Go) - Integration Configuration
+memory_manager:
+  # Transport selection: "rest" (Phase 1) or "grpc" (Phase 1.5)
+  transport: "rest"
+  
+  # REST configuration (Phase 1)
+  rest:
+    base_url: "${MEMORY_MANAGER_URL:http://localhost:8080}"
+    timeout: 10.0
+    max_retries: 3
+  
+  # gRPC configuration (Phase 1.5)
+  grpc:
+    host: "localhost"
+    port: 9090
+    timeout: 5.0
+    use_tls: false
+    # For production with TLS:
+    # use_tls: true
+    # cert_path: "/path/to/cert.pem"
+
+# Redis Configuration
+redis:
+  host: "${REDIS_HOST:localhost}"
+  port: 6379
+  db: 0
+  password: null
+  max_connections: 50
+  decode_responses: true
+
+# ArangoDB Configuration (Canonical Memory Store)
+arangodb:
+  url: "http://${ARANGO_HOST:localhost}:${ARANGO_PORT:8529}"
+  database: "dappy_memories"
+  username: "root"
+  password: "${ARANGO_PASSWORD:dappy_dev_password}"  # From env
+  memory_collection: "memories"
+  memory_edges: "memory_edges"
+  message_collection: "messages"
+  message_edges: "message_to_memory"
+
+# Qdrant Configuration (Vector Index)
+qdrant:
+  url: "http://${QDRANT_HOST:localhost}:${QDRANT_PORT:6333}"
+  collection_name: "memories"
+  vector_size: 1536  # OpenAI text-embedding-3-small
+  distance: "Cosine"
+  timeout: 30
+
+# LLM Configuration (Pluggable Providers)
+llm:
+  provider: "openai"  # openai | anthropic | ollama | azure
+  
+  # OpenAI Configuration
+  openai:
+    api_key: "${OPENAI_API_KEY}"
+    model: "gpt-4o-mini"  # Cheaper, faster alternative: gpt-3.5-turbo
+    organization: null  # Optional
+    timeout: 60.0
+  
+  # Anthropic Configuration
+  anthropic:
+    api_key: "${ANTHROPIC_API_KEY}"
+    model: "claude-3-opus-20240229"
+    timeout: 60.0
+  
+  # Ollama Configuration (Local, FREE!)
+  ollama:
+    base_url: "http://localhost:11434"
+    model: "deepseek-r1:1.5b"  # Lighter & faster than llama2
+    timeout: 120.0
+  
+  # Azure OpenAI Configuration
+  azure:
+    api_key: "${AZURE_OPENAI_API_KEY}"
+    endpoint: "${AZURE_OPENAI_ENDPOINT}"
+    deployment_name: "${AZURE_OPENAI_DEPLOYMENT}"
+    api_version: "2024-02-15-preview"
+    timeout: 60.0
+
+# Chatbot Configuration
+chatbot:
+  system_prompt: null  # Use default if null
+  temperature: 0.7
+  max_tokens: null  # Use model default
+  enable_streaming: true
+  memory_extraction: true
+  
+  # Summarization (cheaper model for context summarization)
+  summarizer_model: "gpt-3.5-turbo"
+  summarizer_temperature: 0.3
+
+# Embeddings Configuration
+embeddings:
+  provider: "openai"
+  model: "text-embedding-3-small"
+  api_key: "${OPENAI_API_KEY}"
+  batch_size: 100
+
+# Context Memory Configuration
+context_memory:
+  max_tokens: 128000
+  flush_threshold: 0.5  # Flush at 50% capacity
+  emergency_threshold: 0.8  # Emergency flush at 80%
+  intelligent_flush: true
+  
+  # Ego thresholds for flushing
+  keep_threshold: 0.7  # Keep in context
+  summarize_threshold: 0.4  # Summarize
+  # Below 0.4 → drop to Tier 4
+
+# Tier Configuration
+tiers:
+  tier4:
+    ttl_seconds: 600  # 10 minutes
+    adaptive_bump_factor: 2.0  # Double TTL on backlog
+    backlog_threshold: 1000
+    redis_key_prefix: "tier4:"
+  
+  tier3:
+    ttl_seconds: 259200  # 3 days
+    redis_key_prefix: "tier3:"
+  
+  tier2:
+    ttl_seconds: 2592000  # 30 days
+    redis_key_prefix: "tier2:"
+  
+  tier1:
+    ttl_seconds: null  # Permanent
+    require_confirmation: true  # Shadow tier enabled
+
+# Ego Scoring Configuration (Hand-tuned for Phase 1)
+ego_scoring:
+  weights:
+    explicit_importance: 0.20
+    recency_decay: 0.20  # ⭐ Updated from plan
+    frequency: 0.10
+    sentiment_intensity: 0.08
+    engagement: 0.12
+    reference_count: 0.10
+    confidence: 0.10
+    source_weight: 0.05
+    novelty: 0.05
+  
+  # Component scorer thresholds
+  frequency_similarity_threshold: 0.3  # Lowered to 0.3 to capture semantically related memories
+  novelty_similarity_threshold: 0.7  # Higher threshold for novelty (stricter)
+  max_frequency_count: 20  # Increased to check more memories (was 10)
+  frequency_lookback_days: 30  # Look back 30 days for similar memories
+  frequency_indexing_timeout: 2.0  # Timeout for waiting for memory indexing (event-driven)
+  
+  thresholds:
+    tier1: 0.75  # Core memory
+    tier2: 0.45  # Long-term
+    tier3: 0.20  # Short-term
+    # Below 0.20 → Tier 4
+  
+  # ⭐ TIME-AWARE: Tier-specific half-lives
+  recency:
+    tier1_half_life_days: 180  # 6 months for identity/preferences
+    tier2_half_life_days: 7    # 1 week for general memories
+    tier3_half_life_days: 1    # 1 day for transient info
+    tier4_half_life_minutes: 5 # 5 minutes for hot buffer
+
+# Consolidation Configuration
+consolidation:
+  enabled: true
+  
+  # Priority queues
+  high_priority_threshold: 0.75
+  med_priority_threshold: 0.45
+  
+  # Worker settings
+  fast_worker:
+    enabled: true
+    target_latency_ms: 100
+    concurrency: 5
+  
+  batch_worker:
+    enabled: true
+    batch_size: 128
+    wait_seconds: 30
+    concurrency: 3
+  
+  # Backpressure
+  max_queue_depth: 2000
+  ttl_bump_on_backlog: true
+  
+  # ⭐ TIME-AWARE: Spaced repetition windows
+  spacing_windows:
+    - name: "day1"
+      after_hours: 24
+      tolerance_hours: 6
+    - name: "day3"
+      after_hours: 72
+      tolerance_hours: 12
+    - name: "week1"
+      after_hours: 168
+      tolerance_hours: 24
+    - name: "month1"
+      after_hours: 720
+      tolerance_hours: 48
+  
+  window_tolerance_hours: 12  # Default tolerance
+
+# Event Bus Configuration (Redis Pub/Sub → Kafka later)
+event_bus:
+  provider: "redis"  # redis | kafka
+  
+  redis:
+    stream_prefix: "events:"
+    consumer_group: "llm-orchestrator"
+    max_len: 10000
+  
+  kafka:  # Phase 3
+    brokers: []
+    topics:
+      memory_upsert: "dappy.memory.upsert"
+      tier_promoted: "dappy.tier.promoted"
+      contradiction_detected: "dappy.contradiction.detected"
+
+# Message Storage Configuration
+message_storage:
+  hot:
+    provider: "redis"
+    retention_days: 14
+    stream_prefix: "messages:"
+  
+  long_term:
+    provider: "arango"  # arango | mongo (switch in Phase 1.5)
+    
+    arango:
+      collection: "messages"
+      edges: "message_to_memory"
+    
+    mongo:  # Phase 1.5
+      uri: "${MONGO_URI}"
+      database: "dappy_messages"
+      collection: "messages"
+      ttl_days: 365
+  
+  cold:
+    provider: "s3"
+    bucket: "dappy-message-archive"
+    prefix: "messages"
+    kms_key_id: "${S3_KMS_KEY}"
+    storage_class: "INTELLIGENT_TIERING"
+    glacier_after_days: 180
+    archive_age_days: 180  # Archive to S3 after 180 days
+
+# Shadow Tier Configuration (Tier 0.5)
+shadow_tier:
+  enabled: true
+  auto_promote_after_days: 7
+  require_confirmation_threshold: 0.75
+  confidence_threshold: 0.85  # Auto-promote if confidence > 85%
+
+# ML Configuration (Memory Classification & Scoring)
+ml:
+  # Classifier selection: "hf_api" | "zeroshot" | "llm" | "distilbert" | "ensemble" | "regex"
+  # "llm" uses OpenAI gpt-4o-mini directly (fast, no HF API needed)
+  classifier_type: "llm"  # Use LLM for benchmark testing (no HF API latency)
+  
+  # Phase 1.5 components - disabled for now, will be used in the future
+  use_lightgbm: false  # Use weighted average instead of LightGBM combiner
+  use_confidence_combiner: true  # Combine classifier/LLM/PII/consistency into final confidence
+  
+  # HuggingFace Inference API Classifier (RECOMMENDED)
+  # Fast, cost-effective cloud inference (~$0.06 per 1,000 requests)
+  # Latency: 200-500ms (vs 30-60s local CPU)
+  # Get API key: https://huggingface.co/settings/tokens
+  hf_api:
+    api_key: "${HUGGINGFACE_API_KEY}"  # Set in .env file
+    model_name: "facebook/bart-large-mnli"  # Faster model (DeBERTa times out)
+    timeout: 15.0  # API request timeout in seconds
+    low_confidence_threshold: 0.3  # Trigger label discovery below this
+    classification_threshold: 0.5  # Minimum score to assign label
+    enable_discovery: true  # Enable dynamic label discovery
+    label_store_path: "data/discovered_labels.json"
+  
+  # Zero-Shot Classifier (LOCAL - DEPRECATED due to CPU performance)
+  # Environment-based model selection
+  zeroshot:
+    # Environment: "local" or "production"
+    # - local: mDeBERTa-v3-base (92-95% accuracy, 1-2s CPU, 1GB RAM)
+    # - production: DeBERTa-v3-large (98% accuracy, 0.3s GPU, 2GB RAM)
+    environment: "${ENVIRONMENT:local}"  # Override with ENVIRONMENT env var
+    
+    # Optional: Override model selection (ignores environment)
+    # model_name: "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"
+    
+    # Classification settings
+    low_confidence_threshold: 0.3  # Trigger label discovery below this
+    classification_threshold: 0.5  # Minimum score to assign label
+    
+    # Dynamic label discovery (uses OpenAI GPT-4o-mini)
+    enable_discovery: true  # Enable dynamic label discovery
+    label_store_path: "data/discovered_labels.json"
+    
+    # Device settings
+    device: -1  # -1 for CPU, 0 for GPU (auto-detected in production)
+  
+  # DistilBERT Classifier (custom trained - legacy)
+  distilbert:
+    model_path: "models/distilbert/best_model.pt"
+    classification_threshold: 0.5
+    device: "cpu"  # cpu | cuda
+  
+  # Ensemble (use both classifiers)
+  ensemble:
+    strategy: "intersection"  # intersection | union | weighted
+    weights:
+      zeroshot: 0.4
+      distilbert: 0.6
+
+# Adaptive Label Discovery Configuration (Phase 2 - DISABLED by default)
+adaptive_discovery:
+  enabled: false  # 🚨 Set to true to enable adaptive label discovery
+  unknown_threshold: 0.7  # Trigger discovery if unknown > 0.7
+  min_examples_to_add: 3  # Require 3 examples before promoting label
+  label_confidence_threshold: 0.8  # LLM must be 80%+ confident
+  similarity_threshold: 0.8  # Prevent duplicate labels (80% similar)
+
+# Contradiction Detection Configuration
+contradiction_detection:
+  enabled: true
+  temporal_gap_threshold_days: 365  # 1 year
+  similarity_threshold: 0.30  # Match Frequency Scorer threshold (was 0.85 - too high!)
+  immediate_clarification: true
+  tier_filter_mode: 'all'  # Check all tiers (tier1_only is deprecated)
+  
+  # Phase 1: Edge creation (Loophole #4 fix)
+  create_edges: true  # Create ThoughtEdges on contradiction detection
+  bidirectional: true  # Create bidirectional edges (A↔B)
+
+# ============================================================================
+# PHASE 1: GRAPH-OF-THOUGHTS CONFIGURATION (v3.0)
+# ============================================================================
+
+# Graph-of-Thoughts Configuration
+graph_of_thoughts:
+  enabled: true
+  
+  # Edge types with categories (implicit clustering via edge types)
+  edge_type_taxonomy:
+    family:
+      relations:
+        - sister_of
+        - brother_of
+        - daughter_of
+        - son_of
+        - parent_of
+        - spouse_of
+        - sibling_of
+      description: "Family relationships and kinship"
+    
+    professional:
+      relations:
+        - works_at
+        - colleague_of
+        - reports_to
+        - manages
+        - collaborates_with
+        - employed_by
+      description: "Work and professional relationships"
+    
+    personal:
+      relations:
+        - likes
+        - dislikes
+        - prefers
+        - interested_in
+        - enjoys
+        - avoids
+      description: "Personal preferences and interests"
+    
+    temporal:
+      relations:
+        - evolves_to
+        - supersedes
+        - refines
+        - clarifies
+        - contradicts
+        - supports
+      description: "Thought evolution and reasoning"
+    
+    factual:
+      relations:
+        - located_at
+        - owns
+        - has_property
+        - member_of
+        - part_of
+      description: "Factual relationships and attributes"
+  
+  # Strength decay (Loophole #3 fix - unified formula)
+  decay_lambda: 0.000012  # ~7 day half-life
+  
+  # Branching limits
+  max_branching_factor: 10
+  min_edge_strength: 0.3
+  
+  # High-impact relations (for Shadow Tier routing)
+  high_impact_relations:
+    - sister_of
+    - brother_of
+    - parent_of
+    - spouse_of
+    - works_at
+    - employed_by
+    - owns
+    - lives_at
+
+# Entity Resolution Configuration (Loophole #2 fix)
+entity_resolution:
+  enabled: true
+  
+  # Alias matching threshold
+  alias_similarity_threshold: 0.90
+  
+  # Entity resolution runs BEFORE candidate edge creation
+  resolve_before_candidates: true
+
+# Activation Scoring Configuration (Phase 2)
+activation:
+  enabled: false  # Enable in Phase 2
+  
+  # Model
+  model_type: "lightgbm"
+  model_path: "models/activation/model.pkl"
+  
+  # Thresholds
+  tier1_threshold: 0.85
+  tier2_threshold: 0.55
+  tier3_threshold: 0.35
+  
+  # Features (15 total, removed ego_score redundancy - Loophole #7 fix)
+  features:
+    - edge_evidence_count
+    - distinct_session_count
+    - recency_weight
+    - frequency_rate
+    - srl_conf_mean
+    - coref_conf_mean
+    - object_sem_sim
+    - source_diversity
+    - time_spread
+    - contradiction_score
+    - ego_max
+    - ego_min
+    - ego_mean
+    - ego_std  # Added std for variance
+    - node_graph_proximity
+    - human_confirmations
+    - promote_count
+    - demote_count
+    - task_relevance_signal
+  
+  # Heuristic fallback (Loophole #10 fix)
+  fallback:
+    enabled: true
+    weights:
+      edge_evidence_count: 0.3
+      distinct_session_count: 0.2
+      recency_weight: 0.2
+      ego_mean: 0.15
+      contradiction_score: 0.15  # Negative weight
+
+# Consolidation Worker Configuration (Phase 2 - Loophole #9 fix)
+consolidation_worker:
+  enabled: false  # Enable in Phase 2
+  
+  # Priority queues with explicit rules
+  high_priority:
+    batch_size: 10
+    poll_interval_ms: 1000
+    max_workers: 4
+    
+    # Criteria for HIGH priority
+    criteria:
+      min_evidence_count: 3
+      min_contradiction_score: 0.7
+      tier1_mentions: true
+      high_impact_relations: true
+  
+  med_priority:
+    batch_size: 50
+    poll_interval_ms: 10000
+    max_workers: 2
+    
+    # Criteria for MED priority
+    criteria:
+      min_evidence_count: 2
+      min_session_count: 2
+      tier2_mentions: true
+  
+  low_priority:
+    batch_size: 100
+    poll_interval_ms: 60000
+    max_workers: 1
+
+# Lightweight PPR Configuration (Phase 4 - ArangoDB Pregel)
+ppr:
+  enabled: false  # Enable in Phase 4
+  
+  # Pregel parameters
+  max_iterations: 20
+  threshold: 0.000001
+  damping: 0.85
+  
+  # Hybrid ranking weights
+  ppr_weight: 0.4
+  ego_weight: 0.3
+  recency_weight: 0.2
+  tier_weight: 0.1
+  
+  # Fallback to vector search if PPR fails
+  fallback_to_qdrant: true
+
+# Tier-Aware Pruning (Phase 5)
+pruning:
+  tier1:
+    archive_after_days: 365
+    storage_class: "GLACIER"
+    keep_metadata: true
+  
+  tier2:
+    archive_after_days: 180
+    storage_class: "STANDARD"
+    keep_metadata: true
+  
+  tier3:
+    delete_after_days: 30
+    check_edges: true  # Don't delete if referenced by Tier 1/2
+  
+  tier4:
+    delete_after_minutes: 10
+
+# Entity Extraction Configuration (Phase 1A - Revised)
+entity_extraction:
+  model: "en_core_web_md"  # Use medium model for balance of speed/accuracy
+  # Note: en_core_web_sm is no longer used as fallback (md is required for good parsing)
+  # Use en_core_web_lg or en_core_web_trf for higher accuracy if needed
+
+# Entity Resolution Configuration (Phase 1A - Revised)
+entity_resolution:
+  fuzzy_threshold: 0.85  # Levenshtein ratio threshold (hyperparameter)
+  embedding_threshold: 0.90  # Cosine similarity threshold (hyperparameter)
+  kb_sync_interval: 300  # Seconds between KB syncs
+  resolve_before_candidates: true  # Entity resolution runs BEFORE candidate edge creation
+
+# Relation Classification Configuration (Phase 1B)
+relation_classification:
+  confidence_threshold: 0.5  # Below this, use LLM fallback
+  llm_model: "gpt-4o-mini"  # LLM for fallback
+  use_heuristics_fallback: true  # Use heuristics if APIs fail
+  
+  # Relation importance is handled by RelationImportanceScorer
+  # Defaults are in code (like ExplicitImportanceScorer for labels)
+  # Use this section ONLY to override specific relations:
+  # relation_importance:
+  #   custom_relation: 0.9  # Override specific relation
+  #   spouse_of: 1.0        # Override default (0.98) with higher value
+
+# Normalization Training (Phase 1E)
+normalization_training:
+  db_path: "data/normalization_training.db"  # SQLite database for training data
+  confidence_threshold: 0.75  # Below this, trigger LLM fallback for normalization
+  collect_training_data: true  # Enable training data collection
+
+# Dependency-Based Extraction Configuration (Phase 1D - NEW!)
+dependency_extraction:
+  enabled: true  # Set to false to use legacy entity-pair method
+  
+  # Coreference Resolution
+  coref:
+    provider: "simple"  # simple | neuralcoref | allennlp
+    model: "en_core_web_md"  # spaCy model for neuralcoref
+    min_confidence: 0.60
+    # Note: "simple" uses rule-based fallback (no extra dependencies)
+    # "neuralcoref" requires: pip install neuralcoref
+    # "allennlp" requires: pip install allennlp allennlp-models
+  
+  # Pattern Matching
+  patterns:
+    enabled_patterns:
+      - "nsubj_verb_dobj"          # Simple SVO
+      - "nsubj_verb_prep_pobj"     # Prepositional
+      - "copula_attr"              # Copula/attributive
+      - "apposition"               # Appositions
+      - "passive_voice"            # Passive voice
+      - "coordination"             # Coordination (and/or)
+      - "nested_clause"            # Nested clauses
+      - "relative_clause"          # Relative clauses
+    
+    # Base confidence scores per pattern
+    confidence_scores:
+      nsubj_verb_dobj: 0.92
+      nsubj_verb_prep_pobj: 0.88
+      copula_attr: 0.90
+      apposition: 0.97
+      passive_voice: 0.85
+      coordination: 0.92
+      nested_clause: 0.88
+      relative_clause: 0.85
+      question: 0.85
+    
+    # Adjustments
+    negation_penalty: 0.15  # Reduce confidence for negated predicates
+    modality_adjusted: true  # Apply modality scores
+  
+  # Modality Scores (certainty levels)
+  modality:
+    will: 0.90
+    shall: 0.85
+    would: 0.50
+    could: 0.50
+    might: 0.40
+    may: 0.50
+    should: 0.70
+    must: 0.85
+    can: 0.80
+  
+  # Confidence Composition Weights
+  confidence_composition:
+    pattern_confidence: 0.40
+    entity_resolution: 0.30
+    normalization: 0.20
+    modality_score: 0.10
+  
+  # Fallback Strategy
+  fallback:
+    min_pattern_confidence: 0.60  # Below this, try zero-shot
+    use_zeroshot_if_no_match: true
+    use_llm_if_zeroshot_fails: true
+    llm_confidence_threshold: 0.50
+  
+  # Custom Predicate Mappings (optional overrides)
+  custom_predicate_mappings: {}
+    # Example:
+    # "custom_verb": "canonical_relation"
+
+# Relation Training Data Configuration (Phase 1B)
+relation_training:
+  enabled: true
+  db_path: "data/relation_training.db"
+  export_format: "jsonl"
+
+# ⭐ TIME-AWARE: Temporal Configuration
+temporal:
+  sequence_scope: "per_user"  # per_user | per_session | global
+  default_timezone: "UTC"
+  store_user_timezone: true
+  
+  # Time buckets for features
+  time_buckets:
+    - "morning"    # 6-12
+    - "afternoon"  # 12-18
+    - "evening"    # 18-24
+    - "night"      # 0-6
+
+# ⭐ PHASE 1G: Sentence Intent Classification & Routing
+sentence_intent:
+  enabled: true
+  
+  classifier:
+    provider: "hf_api"  # hf_api | llm
+    model: "facebook/bart-large-mnli"
+    api_key: "${HUGGINGFACE_API_KEY}"
+    timeout: 10.0
+    confidence_threshold: 0.6
+    # Heuristics are intentionally NOT the primary path (they don't generalize).
+    # Keep them as a last-resort fallback when HF/LLM are unavailable.
+    enable_heuristics: false
+    enable_llm_fallback: true
+  
+  # Intent-based activation weights (multipliers)
+  activation_weights:
+    fact: 1.0        # Standard weight
+    evaluation: 1.2  # Higher (shows values/preferences)
+    opinion: 0.9     # Slightly lower (subjective)
+    speech_act: 0.3  # Very low (ephemeral)
+    directive: 1.1   # High (shows goals/intents)
+  
+  # Extractor configurations
+  extractors:
+    evaluative:
+      enabled: true
+      relation_types: ["values", "dislikes", "prefers"]
+      patterns:
+        - "gerund_copula"  # "Hanging with X is amazing"
+        - "noun_copula"    # "Music is great"
+        - "emotion_verb"   # "I love X"
+    
+    opinion:
+      enabled: true
+      relation_types: ["believes", "aligns_with", "disagrees_with", "supports", "opposes"]
+      patterns:
+        - "belief_clause"  # "I think X"
+        - "agreement"      # "I agree with X"
+        - "stance"         # "I support X"
+    
+    speech_act:
+      enabled: true
+      tier: 4  # Ephemeral
+      ttl_days: 7
+      relation_types: ["addresses", "thanks", "greets"]
+      patterns:
+        - "vocative"   # ", Name"
+        - "gratitude"  # "Thanks, X"
+        - "greeting"   # "Hello, X"
+    
+    directive:
+      enabled: true
+      relation_types: ["wants", "intends", "requests"]
+      patterns:
+        - "want_clause"  # "I want to X"
+        - "request"      # "Tell X to Y"
+        - "imperative"   # "Remind me"
+
+# Monitoring & Metrics
+monitoring:
+  prometheus:
+    enabled: true
+    port: 9090
+    path: "/metrics"
+  
+  logging:
+    level: "INFO"  # DEBUG | INFO | WARNING | ERROR
+    format: "json"
+    output: "stdout"
+
+# Rate Limiting
+rate_limiting:
+  enabled: true
+  requests_per_minute: 1000
+  burst: 200
+

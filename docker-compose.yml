@@ -1,0 +1,91 @@
+version: '3.8'
+
+# Datclaw Memory Engine - Development Setup
+# Runs infrastructure services in Docker, llm-orchestration locally for hot reload
+
+services:
+  # ============================================================================
+  # INFRASTRUCTURE SERVICES
+  # ============================================================================
+
+  # Redis - Event Bus & Hot Tier Storage
+  redis:
+    image: redis:7-alpine
+    container_name: datclaw-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - datclaw-network
+
+  # ArangoDB - Canonical Memory Store
+  arangodb:
+    build:
+      context: ./docker
+      dockerfile: arangodb.Dockerfile
+    container_name: datclaw-arangodb
+    ports:
+      - "8529:8529"
+    environment:
+      ARANGO_ROOT_PASSWORD: ${ARANGODB_PASSWORD}
+    volumes:
+      - arangodb_data:/var/lib/arangodb3
+      - arangodb_apps:/var/lib/arangodb3-apps
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -s http://localhost:8529/_api/version | grep -q error || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - datclaw-network
+
+  # Qdrant - Vector Search Engine
+  qdrant:
+    build:
+      context: ./docker
+      dockerfile: qdrant.Dockerfile
+    container_name: datclaw-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 -O- http://localhost:6333/ 2>&1 | grep -q qdrant || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - datclaw-network
+
+# ============================================================================
+# VOLUMES
+# ============================================================================
+volumes:
+  redis_data:
+    driver: local
+  arangodb_data:
+    driver: local
+  arangodb_apps:
+    driver: local
+  qdrant_storage:
+    driver: local
+
+# ============================================================================
+# NETWORKS
+# ============================================================================
+networks:
+  datclaw-network:
+    driver: bridge
+    name: datclaw-dev
