@@ -2,50 +2,49 @@
 
 ## 🚀 Get Running in 5 Minutes
 
-### 1. Configure Secrets (2 minutes)
+### One-Command Setup
 
 ```bash
-# Edit .env file
-nano .env
+# Clone the repo
+git clone https://github.com/SaswataPatra/Datclaw-Memory-Engine.git
+cd Datclaw-Memory-Engine
 
-# Update these two lines:
-OPENAI_API_KEY=sk-proj-YOUR-ACTUAL-KEY
-ARANGODB_PASSWORD=your-strong-password-here
+# Run setup script (handles everything)
+./setup.sh        # macOS/Linux
+# OR
+setup.bat         # Windows
 ```
 
-### 2. Start Databases (1 minute)
+The script will:
+- Check Docker, Python, Node.js
+- Create `.env` (you'll need to add your OpenAI API key)
+- Start Docker services
+- Install dependencies (you choose: core only or core + ML)
+- Set up frontend (optional)
 
+### After Setup
+
+**1. Edit `.env` file:**
 ```bash
-docker-compose up -d
+nano .env  # or use your editor
+
+# Set these:
+OPENAI_API_KEY=sk-your-actual-key
+ARANGODB_PASSWORD=your-secure-password
 ```
 
-Wait 30 seconds for services to be healthy.
-
-### 3. Start Backend (2 minutes)
-
+**2. Start the backend:**
 ```bash
 cd llm-orchestration
-python -m venv .venv
-source .venv/bin/activate  # Mac/Linux
-
-# Install dependencies (includes spacy model download)
-./setup_dependencies.sh
-
-# Start the service (DB/collections created on first run if needed)
 ./start_service.sh
 ```
 
-### 4. Test It! (30 seconds)
-
+**3. Test it:**
 ```bash
-# In a new terminal
 curl http://localhost:8000/health
 ```
 
-Should return: `{"status":"healthy"}`
-
-### 5. Chat! (Optional)
-
+**4. Chat:**
 ```bash
 cd llm-orchestration
 ./chat.sh

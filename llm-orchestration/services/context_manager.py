@@ -9,7 +9,12 @@ from typing import List, Dict, Tuple, Optional, Any
 import logging
 from datetime import datetime
 import asyncio
-import spacy
+try:
+    import spacy
+    SPACY_AVAILABLE = True
+except ImportError:
+    SPACY_AVAILABLE = False
+    spacy = None
 
 from core.scoring.ego_scorer import TemporalEgoScorer
 from core.event_bus import Event, EventBus
@@ -81,13 +86,16 @@ class ContextMemoryManager:
             except Exception as e:
                 logger.warning(f"Failed to initialize PPR retrieval: {e}")
         
-        # Initialize spaCy for entity extraction
+        # Initialize spaCy for entity extraction (optional)
         self.nlp = None
-        try:
-            self.nlp = spacy.load("en_core_web_sm")
-            logger.info("spaCy loaded for entity extraction from queries")
-        except Exception as e:
-            logger.warning(f"Failed to load spaCy: {e}")
+        if SPACY_AVAILABLE:
+            try:
+                self.nlp = spacy.load("en_core_web_sm")
+                logger.info("spaCy loaded for entity extraction from queries")
+            except Exception as e:
+                logger.warning(f"Failed to load spaCy model: {e}. Entity extraction from queries will use fallback.")
+        else:
+            logger.info("spaCy not installed. Entity extraction from queries will use LLM-based fallback.")
         
         # Context limits
         context_config = config.get('context_memory', {})

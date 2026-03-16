@@ -23,65 +23,52 @@ See the detailed system architecture here -![Architecture Diagram](docs/system-d
 ### Prerequisites
 
 - Docker & Docker Compose
-- Python 3.9+
-- Node.js 18+ (for frontend)
+- Python 3.9+ (3.12 recommended)
+- Node.js 18+ (optional, for frontend)
 - OpenAI API key
 
-### 1. Clone and Setup
+### One-Command Setup
 
 ```bash
 git clone https://github.com/SaswataPatra/Datclaw-Memory-Engine.git
 cd Datclaw-Memory-Engine
 
-# Copy environment template
-cp .env.example .env
-
-# Add your OpenAI API key to .env
-# OPENAI_API_KEY=sk-your-key-here
+# Run the setup script (handles everything)
+./setup.sh        # macOS/Linux
+# OR
+setup.bat         # Windows
 ```
 
-### 2. Start Infrastructure
+The script will:
+1. Check prerequisites (Docker, Python, Node.js)
+2. Create `.env` from template
+3. Start Docker services (Redis, ArangoDB, Qdrant)
+4. Set up Python virtual environment
+5. Install dependencies (you choose: core only or core + ML)
+6. Optionally set up frontend
+
+### Manual Setup (if you prefer)
 
 ```bash
-# Start Redis, ArangoDB, Qdrant
+# 1. Configure environment
+cp .env.example .env
+# Edit .env: add OPENAI_API_KEY and ARANGODB_PASSWORD
+
+# 2. Start Docker services
 docker-compose up -d
 
-# Verify services are healthy
-docker ps
-```
-
-### 3. Start Backend
-
-```bash
+# 3. Install backend
 cd llm-orchestration
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt  # Core only (~200MB)
+# pip install -r requirements-ml.txt  # Optional: ML features (~2-3GB)
 
-# Create virtual environment (requires Python 3.12)
-python3.12 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Download spacy language model
-python -m spacy download en_core_web_sm
-
-# Start the service
+# 4. Start backend
 ./start_service.sh
 ```
 
-Backend runs at `http://localhost:8000`
-
-### 4. Start Frontend (Optional)
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Frontend runs at `http://localhost:3000`
-
-### 5. Verify
+### Verify Installation
 
 ```bash
 # Check backend health
@@ -193,6 +180,8 @@ Detailed documentation is available in the [`docs/`](docs/) directory:
 
 - [Quick Start](QUICK_START.md) - Get running in 5 minutes
 - [Startup Guide](STARTUP_GUIDE.md) - Comprehensive development setup
+- [Troubleshooting](TROUBLESHOOTING.md) - Common issues and solutions
+- [Dependencies](llm-orchestration/DEPENDENCIES.md) - Core vs ML installation
 - [Contributing](CONTRIBUTING.md) - How to contribute to the project
 - [Architecture](docs/architecture.md) - System design and data flow
 - [KG Maintenance](docs/kg-maintenance.md) - How the knowledge graph stays clean

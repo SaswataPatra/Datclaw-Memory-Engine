@@ -26,22 +26,67 @@ from core.scoring.ego_scorer import TemporalEgoScorer
 from core.event_bus import EventBus
 from core.shadow_tier import ShadowTier
 
-# ML-based ego scoring components
-from ml.component_scorers import (
-    NoveltyScorer,
-    FrequencyScorer,
-    SentimentScorer,
-    ExplicitImportanceScorer,
-    EngagementScorer
-)
-from ml.combiners import LightGBMCombiner, ConfidenceCombiner
-from ml.extractors import DistilBERTMemoryClassifier, AdaptiveLabelDiscovery
-from ml.extractors.zeroshot_memory_classifier import (
-    ZeroShotMemoryClassifier,
-    DynamicLabelDiscovery,
-    LabelStore
-)
-from ml.utils import get_global_executor
+# ML-based components are heavy (torch, transformers, lightgbm, shap, sklearn)
+# Lazy-import them only when actually enabled via config
+NoveltyScorer = None
+FrequencyScorer = None
+SentimentScorer = None
+ExplicitImportanceScorer = None
+EngagementScorer = None
+LightGBMCombiner = None
+ConfidenceCombiner = None
+DistilBERTMemoryClassifier = None
+AdaptiveLabelDiscovery = None
+ZeroShotMemoryClassifier = None
+DynamicLabelDiscovery = None
+LabelStore = None
+get_global_executor = None
+
+_ML_LOADED = False
+
+def _load_ml_components():
+    """Lazy-load heavy ML dependencies only when needed."""
+    global NoveltyScorer, FrequencyScorer, SentimentScorer
+    global ExplicitImportanceScorer, EngagementScorer
+    global LightGBMCombiner, ConfidenceCombiner
+    global DistilBERTMemoryClassifier, AdaptiveLabelDiscovery
+    global ZeroShotMemoryClassifier, DynamicLabelDiscovery, LabelStore
+    global get_global_executor, _ML_LOADED
+
+    if _ML_LOADED:
+        return True
+
+    try:
+        from ml.component_scorers import (
+            NoveltyScorer as _NS, FrequencyScorer as _FS,
+            SentimentScorer as _SS, ExplicitImportanceScorer as _EIS,
+            EngagementScorer as _ES
+        )
+        from ml.combiners import LightGBMCombiner as _LC, ConfidenceCombiner as _CC
+        from ml.extractors import DistilBERTMemoryClassifier as _DMC, AdaptiveLabelDiscovery as _ALD
+        from ml.extractors.zeroshot_memory_classifier import (
+            ZeroShotMemoryClassifier as _ZSC, DynamicLabelDiscovery as _DLD, LabelStore as _LS
+        )
+        from ml.utils import get_global_executor as _GGE
+
+        NoveltyScorer = _NS
+        FrequencyScorer = _FS
+        SentimentScorer = _SS
+        ExplicitImportanceScorer = _EIS
+        EngagementScorer = _ES
+        LightGBMCombiner = _LC
+        ConfidenceCombiner = _CC
+        DistilBERTMemoryClassifier = _DMC
+        AdaptiveLabelDiscovery = _ALD
+        ZeroShotMemoryClassifier = _ZSC
+        DynamicLabelDiscovery = _DLD
+        LabelStore = _LS
+        get_global_executor = _GGE
+        _ML_LOADED = True
+        return True
+    except ImportError as e:
+        logging.getLogger(__name__).warning(f"ML components not available (install with requirements-ml.txt): {e}")
+        return False
 
 # Graph-of-Thoughts integration (Phase 1C)
 try:
@@ -134,14 +179,16 @@ class ChatbotService:
         # Format: {session_id: {message_id: 'pending'|'processing'|'completed'}}
         self.memory_processing_state: Dict[str, Dict[str, str]] = {}
         
-        # Initialize ML components if enabled
-        # Initialize async executor for CPU-intensive operations
-        # This prevents blocking the event loop during ML inference
-        # Using 2 workers for better throughput (zero-shot is more memory-efficient than DistilBERT)
-        self.ml_executor = get_global_executor(max_workers=4)  # Increased for zero-shot + LightGBM parallelism
-        
-        if use_ml_scoring:
-            self._init_ml_components(qdrant_client)
+        # Initialize ML components if enabled (lazy-loads heavy dependencies)
+        self.ml_executor = None
+        if use_ml_scoring or use_distilbert or (classifier_type and classifier_type in ('zeroshot', 'distilbert')):
+            if _load_ml_components():
+                self.ml_executor = get_global_executor(max_workers=4)
+                if use_ml_scoring:
+                    self._init_ml_components(qdrant_client)
+            else:
+                logger.warning("ML scoring requested but ML packages not installed. Falling back to non-ML mode.")
+                self.use_ml_scoring = False
             logger.info("ML-based ego scoring enabled")
         else:
             self.ml_scorers = None

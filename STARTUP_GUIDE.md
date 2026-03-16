@@ -2,14 +2,33 @@
 
 This guide will help you get the Datclaw Memory Engine up and running for local development and testing.
 
-**Looking for production hosting?** Check out our [hosted service](https://datclaw.io) for a fully managed solution Coming Soon.
+**Looking for production hosting?** Check out our [hosted service](https://datclaw.ai) for a fully managed solution (Coming Soon).
 
 ## Prerequisites
 
-- Docker & Docker Compose installed
-- Python 3.9+ installed
-- Node.js 18+ installed (for frontend)
-- OpenAI API key
+- **Docker & Docker Compose** - For running databases
+- **Python 3.9+** (3.12 recommended) - For backend
+- **Node.js 18+** (optional) - For frontend
+- **OpenAI API key** - For LLM calls
+
+## Automated Setup (Recommended)
+
+The easiest way to get started:
+
+```bash
+# Clone and run setup
+git clone https://github.com/SaswataPatra/Datclaw-Memory-Engine.git
+cd Datclaw-Memory-Engine
+
+# Run setup script
+./setup.sh        # macOS/Linux
+# OR
+setup.bat         # Windows
+```
+
+The script handles everything automatically. Skip to [Step 5](#step-5-test-the-system) after running it.
+
+## Manual Setup (Alternative)
 
 ## Step 1: Configure Environment Variables
 

@@ -17,6 +17,15 @@ git remote add upstream https://github.com/SaswataPatra/Datclaw-Memory-Engine.gi
 
 ### 2. Set Up Development Environment
 
+**Option A: Automated (Recommended)**
+
+```bash
+# Run the setup script
+./setup.sh  # Handles everything automatically
+```
+
+**Option B: Manual**
+
 ```bash
 # Copy environment template
 cp .env.example .env
@@ -32,6 +41,9 @@ cd llm-orchestration
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+
+# For ML development, also install:
+# pip install -r requirements-ml.txt
 
 # Run tests to verify setup
 pytest tests/ -v

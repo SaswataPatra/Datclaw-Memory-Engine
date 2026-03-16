@@ -1,40 +1,47 @@
 #!/bin/bash
-# Setup script for Datclaw Memory Engine dependencies
+set -e
 
-set -e  # Exit on error
+echo "Setting up Datclaw Memory Engine dependencies..."
 
-echo "🔧 Setting up Datclaw Memory Engine dependencies..."
-
-# Check if virtual environment exists
 if [ ! -d ".venv" ]; then
-    echo "❌ Virtual environment not found. Please create it first:"
-    echo "   python -m venv .venv"
-    exit 1
+    echo "Virtual environment not found. Creating..."
+    python3 -m venv .venv
 fi
 
-# Activate virtual environment
-echo "📦 Activating virtual environment..."
+echo "Activating virtual environment..."
 source .venv/bin/activate
 
-# Upgrade pip
-echo "⬆️  Upgrading pip..."
+echo "Upgrading pip..."
 pip install --upgrade pip
 
-# Install requirements
-echo "📚 Installing Python dependencies..."
+echo "Installing core dependencies..."
 pip install -r requirements.txt
 
-# Download spacy language model
-echo "🌐 Downloading spacy English language model..."
-python -m spacy download en_core_web_sm
-
-# Verify installation
-echo ""
-echo "✅ Verifying installation..."
-python -c "import spacy; print(f'Spacy version: {spacy.__version__}')"
-python -c "import fastapi; print(f'FastAPI version: {fastapi.__version__}')"
-python -c "import pydantic; print(f'Pydantic version: {pydantic.__version__}')"
+# Check if ML install is requested
+if [ "$1" = "--ml" ] || [ "$1" = "--full" ]; then
+    echo ""
+    echo "Installing ML dependencies (this may take a while)..."
+    pip install -r requirements-ml.txt
+    echo "Downloading spacy English language model..."
+    python -m spacy download en_core_web_sm
+fi
 
 echo ""
-echo "✨ Setup complete! You can now start the service with:"
-echo "   ./start_service.sh"
+echo "Verifying installation..."
+python -c "import fastapi; print(f'FastAPI: {fastapi.__version__}')"
+python -c "import pydantic; print(f'Pydantic: {pydantic.__version__}')"
+python -c "import openai; print(f'OpenAI: {openai.__version__}')"
+
+if [ "$1" = "--ml" ] || [ "$1" = "--full" ]; then
+    python -c "import spacy; print(f'spaCy: {spacy.__version__}')" 2>/dev/null || echo "spaCy: not installed"
+    python -c "import torch; print(f'PyTorch: {torch.__version__}')" 2>/dev/null || echo "PyTorch: not installed"
+fi
+
+echo ""
+echo "Setup complete!"
+echo ""
+echo "Usage:"
+echo "  ./setup_dependencies.sh        # Core only (~200MB, fast)"
+echo "  ./setup_dependencies.sh --ml    # Core + ML (~2-3GB, includes PyTorch/spaCy)"
+echo ""
+echo "Start the service with: ./start_service.sh"
