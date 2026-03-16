@@ -16,26 +16,6 @@ Most memory systems are just vector databases with basic retrieval. Datclaw is d
 
 ## Architecture
 
-Below is the mermaid diagram for you to feed to ai agents.
-`
-```mermaid
-graph TB
-    User[User] -->|Chat| Frontend[Frontend React App]
-    Frontend -->|HTTP| LLM[LLM Orchestration Service]
-    
-    LLM -->|Events| Redis[(Redis<br/>Event Bus + Hot Tier)]
-    LLM -->|Store/Query| Arango[(ArangoDB<br/>Knowledge Graph + Memories)]
-    LLM -->|Vector Search| Qdrant[(Qdrant<br/>Embeddings)]
-    
-    LLM -->|Consolidation| ConsolidationWorker[Consolidation Worker]
-    LLM -->|KG Maintenance| KGWorker[KG Maintenance Worker]
-    
-    ConsolidationWorker -->|Extract| Entities[Entities + Relations]
-    KGWorker -->|Detect| Contradictions[Contradictions + Reinforcements]
-    
-    Entities -->|Store| Arango
-    Contradictions -->|Update| Arango
-```
 See the detailed system architecture here -![Architecture Diagram](docs/system-design.png)
 
 ## Quick Start
@@ -122,7 +102,7 @@ cd llm-orchestration
 - Enterprise support
 - 99.9% uptime SLA
 
-👉 **[Sign up for hosted service](https://datclaw.io)** (Coming Soon)
+👉 **[Sign up for hosted service](https://datclaw.ai)** (Coming Soon)
 
 ### Self-Hosted
 
