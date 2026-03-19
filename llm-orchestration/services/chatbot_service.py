@@ -181,28 +181,32 @@ class ChatbotService:
         
         # Initialize ML components if enabled (lazy-loads heavy dependencies)
         self.ml_executor = None
+        self.ml_scorers = None
+        self.ml_combiner = None
+        self.confidence_combiner = None
+        
         if use_ml_scoring or use_distilbert or (classifier_type and classifier_type in ('zeroshot', 'distilbert')):
             if _load_ml_components():
                 self.ml_executor = get_global_executor(max_workers=4)
                 if use_ml_scoring:
                     self._init_ml_components(qdrant_client)
+                logger.info("ML-based ego scoring enabled")
             else:
                 logger.warning("ML scoring requested but ML packages not installed. Falling back to non-ML mode.")
                 self.use_ml_scoring = False
-            logger.info("ML-based ego scoring enabled")
+                logger.info("Using legacy regex-based scoring")
         else:
-            self.ml_scorers = None
-            self.ml_combiner = None
-            self.confidence_combiner = None
             logger.info("Using legacy regex-based scoring")
         
         # Initialize memory classifier based on type
         self.classifier_type = classifier_type or self.config.get('ml', {}).get('classifier_type', 'zeroshot')
         
-        # DEBUG: Print what we got from config
-        print(f"🔍 DEBUG: classifier_type from config: {self.config.get('ml', {}).get('classifier_type', 'NOT_SET')}")
-        print(f"🔍 DEBUG: classifier_type parameter: {classifier_type}")
-        print(f"🔍 DEBUG: final classifier_type: {self.classifier_type}")
+        logger.debug(
+            "Classifier config resolved: config=%s, param=%s, final=%s",
+            self.config.get('ml', {}).get('classifier_type', 'NOT_SET'),
+            classifier_type,
+            self.classifier_type
+        )
         self.memory_classifier = None
         self.label_discovery = None
         self.label_store = None
