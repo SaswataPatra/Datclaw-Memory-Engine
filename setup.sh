@@ -273,7 +273,7 @@ echo -e "${BLUE}[5/7] Verifying installation...${NC}"
 python -c "import fastapi; print('  ✓ FastAPI:', fastapi.__version__)" || exit 1
 python -c "import openai; print('  ✓ OpenAI:', openai.__version__)" || exit 1
 python -c "import redis; print('  ✓ Redis:', redis.__version__)" || exit 1
-python -c "import arango; print('  ✓ ArangoDB:', arango.__version__)" || exit 1
+python -c "import arango; print('  ✓ ArangoDB client: installed')" || exit 1
 
 if [ "$INSTALL_TYPE" = "2" ]; then
     python -c "import spacy; print('  ✓ spaCy:', spacy.__version__)" 2>/dev/null || echo "  ⚠ spaCy not available"
