@@ -18,7 +18,7 @@ def arango_db():
         'url': 'http://localhost:8529',
         'database': 'dappy_test_auth',
         'username': 'root',
-        'password': 'dappy_dev_password'
+        'password': os.getenv('ARANGODB_PASSWORD', 'test_password')
     }
     
     client = ArangoClient(hosts=config['url'])

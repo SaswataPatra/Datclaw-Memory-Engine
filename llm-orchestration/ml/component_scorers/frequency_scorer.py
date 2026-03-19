@@ -37,7 +37,7 @@ class FrequencyScorer(ComponentScorer):
             self.arango_db = arango_client.db(
                 arango_config.get('database', 'dappy_memories'),
                 username=arango_config.get('username', 'root'),
-                password=os.getenv('ARANGO_PASSWORD', arango_config.get('password', 'dappy_dev_password'))
+                password=os.getenv('ARANGODB_PASSWORD', arango_config.get('password', 'dappy_dev_password'))
             )
             self.memory_collection = self.arango_db.collection(
                 arango_config.get('memory_collection', 'memories')

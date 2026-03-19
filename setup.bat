@@ -64,15 +64,56 @@ REM ============================================================================
 echo [2/7] Checking environment configuration...
 
 if not exist ".env" (
-    echo [WARN] .env file not found, creating from template...
-    copy .env.example .env >nul
-    echo [OK] Created .env file
+    echo [INFO] .env file not found. Let's create it interactively.
     echo.
-    echo [IMPORTANT] Edit .env and set:
-    echo   - OPENAI_API_KEY=sk-your-key-here
-    echo   - ARANGODB_PASSWORD=your-secure-password
+    
+    REM Collect OpenAI API Key
+    echo Enter your OpenAI API Key:
+    echo (Get one at: https://platform.openai.com/api-keys^)
+    set /p OPENAI_KEY="OPENAI_API_KEY: "
+    
+    REM Collect ArangoDB Password
     echo.
-    pause
+    echo Set a password for ArangoDB:
+    echo (Choose a secure password, min 8 characters^)
+    set /p ARANGO_PASS="ARANGODB_PASSWORD: "
+    
+    REM Optional HuggingFace Key
+    echo.
+    echo HuggingFace API Key (optional, press Enter to skip^):
+    set /p HF_KEY="HUGGINGFACE_API_KEY: "
+    if "%HF_KEY%"=="" set HF_KEY=hf_your_key_here
+    
+    REM Create .env file
+    (
+        echo # OpenAI API Configuration
+        echo OPENAI_API_KEY=!OPENAI_KEY!
+        echo.
+        echo # Redis Configuration
+        echo REDIS_URL=redis://localhost:6379
+        echo.
+        echo # ArangoDB Configuration
+        echo ARANGODB_URL=http://localhost:8529
+        echo ARANGODB_USERNAME=root
+        echo ARANGODB_PASSWORD=!ARANGO_PASS!
+        echo ARANGODB_DATABASE=dappy
+        echo.
+        echo # Qdrant Configuration
+        echo QDRANT_URL=http://localhost:6333
+        echo QDRANT_COLLECTION=memories
+        echo.
+        echo # HuggingFace API Key (optional^)
+        echo HUGGINGFACE_API_KEY=!HF_KEY!
+        echo.
+        echo # CORS Origins
+        echo CORS_ORIGINS=
+        echo.
+        echo # Logging Level
+        echo LOG_LEVEL=INFO
+    ) > .env
+    
+    echo.
+    echo [OK] Created .env file with your credentials
 ) else (
     echo [OK] .env file exists
 )

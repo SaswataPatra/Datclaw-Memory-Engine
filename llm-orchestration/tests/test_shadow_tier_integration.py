@@ -46,7 +46,7 @@ async def test_shadow_tier():
         # 3. Check for pending shadow tier confirmation
         console.print("[bold cyan]3. Checking for Shadow Tier Confirmation[/bold cyan]")
         shadow_response = await client.get(
-            f"{base_url}/shadow/pending/test_session_shadow_001"
+            f"{base_url}/shadow/pending/session/test_session_shadow_001"
         )
         shadow_response.raise_for_status()
         shadow_data = shadow_response.json()
@@ -100,7 +100,7 @@ async def test_shadow_tier():
         chat_response2.raise_for_status()
         
         shadow_response2 = await client.get(
-            f"{base_url}/shadow/pending/test_session_shadow_002"
+            f"{base_url}/shadow/pending/session/test_session_shadow_002"
         )
         shadow_response2.raise_for_status()
         shadow_data2 = shadow_response2.json()

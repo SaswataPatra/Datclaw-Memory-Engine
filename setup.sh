@@ -114,15 +114,56 @@ echo ""
 echo -e "${BLUE}[2/7] Checking environment configuration...${NC}"
 
 if [ ! -f ".env" ]; then
-    echo -e "${YELLOW}⚠ .env file not found, creating from template...${NC}"
-    cp .env.example .env
-    echo -e "${GREEN}✓ Created .env file${NC}"
+    echo -e "${YELLOW}⚠ .env file not found. Let's create it interactively.${NC}"
     echo ""
-    echo -e "${YELLOW}⚠ IMPORTANT: Edit .env and set:${NC}"
-    echo "  - OPENAI_API_KEY=sk-your-key-here"
-    echo "  - ARANGODB_PASSWORD=your-secure-password"
+    
+    # Collect OpenAI API Key
+    echo -e "${BLUE}Enter your OpenAI API Key:${NC}"
+    echo -e "${YELLOW}(Get one at: https://platform.openai.com/api-keys)${NC}"
+    read -p "OPENAI_API_KEY: " OPENAI_KEY
+    
+    # Collect ArangoDB Password
     echo ""
-    read -p "Press Enter after updating .env, or Ctrl+C to exit and edit later..."
+    echo -e "${BLUE}Set a password for ArangoDB:${NC}"
+    echo -e "${YELLOW}(Choose a secure password, min 8 characters)${NC}"
+    read -sp "ARANGODB_PASSWORD: " ARANGO_PASS
+    echo ""
+    
+    # Optional: HuggingFace API Key
+    echo ""
+    echo -e "${BLUE}HuggingFace API Key (optional, press Enter to skip):${NC}"
+    read -p "HUGGINGFACE_API_KEY: " HF_KEY
+    
+    # Create .env file
+    cat > .env << EOF
+# OpenAI API Configuration
+OPENAI_API_KEY=${OPENAI_KEY}
+
+# Redis Configuration
+REDIS_URL=redis://localhost:6379
+
+# ArangoDB Configuration
+ARANGODB_URL=http://localhost:8529
+ARANGODB_USERNAME=root
+ARANGODB_PASSWORD=${ARANGO_PASS}
+ARANGODB_DATABASE=dappy
+
+# Qdrant Configuration
+QDRANT_URL=http://localhost:6333
+QDRANT_COLLECTION=memories
+
+# HuggingFace API Key (optional, for ML classifiers)
+HUGGINGFACE_API_KEY=${HF_KEY:-hf_your_key_here}
+
+# CORS Origins (comma-separated, leave empty for permissive dev mode)
+CORS_ORIGINS=
+
+# Logging Level (DEBUG, INFO, WARNING, ERROR)
+LOG_LEVEL=INFO
+EOF
+    
+    echo ""
+    echo -e "${GREEN}✓ Created .env file with your credentials${NC}"
 else
     echo -e "${GREEN}✓ .env file exists${NC}"
     
@@ -132,15 +173,38 @@ else
         echo -e "${YELLOW}  ⚠ OPENAI_API_KEY has placeholder value${NC}"
         NEEDS_UPDATE=true
     fi
-    if grep -q "<your-arango-password>" .env 2>/dev/null || ! grep -q "ARANGODB_PASSWORD=" .env 2>/dev/null; then
-        echo -e "${YELLOW}  ⚠ ARANGODB_PASSWORD not set${NC}"
+    if grep -q "<your-arango-password>\|your-secure-password\|your_secure_password" .env 2>/dev/null; then
+        echo -e "${YELLOW}  ⚠ ARANGODB_PASSWORD has placeholder value${NC}"
         NEEDS_UPDATE=true
     fi
     
     if [ "$NEEDS_UPDATE" = true ]; then
         echo ""
-        echo -e "${YELLOW}Please update .env with real values before continuing.${NC}"
-        read -p "Press Enter after updating .env, or Ctrl+C to exit..."
+        echo -e "${YELLOW}Would you like to update credentials interactively? (y/N)${NC}"
+        read -p "> " -n 1 -r
+        echo
+        
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            # Collect new credentials
+            echo ""
+            echo -e "${BLUE}Enter your OpenAI API Key:${NC}"
+            read -p "OPENAI_API_KEY: " OPENAI_KEY
+            
+            echo ""
+            echo -e "${BLUE}Set a password for ArangoDB:${NC}"
+            read -sp "ARANGODB_PASSWORD: " ARANGO_PASS
+            echo ""
+            
+            # Update .env
+            sed -i.bak "s|OPENAI_API_KEY=.*|OPENAI_API_KEY=${OPENAI_KEY}|" .env
+            sed -i.bak "s|ARANGODB_PASSWORD=.*|ARANGODB_PASSWORD=${ARANGO_PASS}|" .env
+            rm -f .env.bak
+            
+            echo -e "${GREEN}✓ Updated .env file${NC}"
+        else
+            echo -e "${YELLOW}Please edit .env manually before continuing.${NC}"
+            read -p "Press Enter after updating .env, or Ctrl+C to exit..."
+        fi
     fi
 fi
 

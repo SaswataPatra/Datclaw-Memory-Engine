@@ -35,7 +35,7 @@ async def reset_all():
     print("🗄️  Resetting ArangoDB...")
     try:
         arango_client = ArangoClient(hosts='http://localhost:8529')
-        db = arango_client.db('dappy_memories', username='root', password='dappy_dev_password')
+        db = arango_client.db('dappy_memories', username='root', password=os.getenv('ARANGODB_PASSWORD', 'dappy_dev_password'))
         
         # Clear collections
         collections = ['entities', 'candidate_edges', 'memories']

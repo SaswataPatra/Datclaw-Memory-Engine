@@ -42,7 +42,7 @@ async def test_ppr_retrieval():
     # Connect to ArangoDB
     print("📡 Connecting to ArangoDB...")
     client = ArangoClient(hosts='http://localhost:8529')
-    db = client.db('dappy_memories', username='root', password='dappy_dev_password')
+    db = client.db('dappy_memories', username='root', password=os.getenv('ARANGODB_PASSWORD', 'dappy_dev_password'))
     print("✅ Connected")
     print()
     

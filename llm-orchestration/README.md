@@ -139,7 +139,7 @@ Create a `.env` file:
 
 ```bash
 OPENAI_API_KEY=sk-your-key-here
-ARANGO_PASSWORD=your-password
+ARANGODB_PASSWORD=your-password
 MONGO_URI=mongodb://localhost:27017  # Phase 1.5
 S3_KMS_KEY=your-kms-key  # For cold archive
 ```
@@ -392,7 +392,7 @@ services:
       - "8001:8001"
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ARANGO_PASSWORD=${ARANGO_PASSWORD}
+      - ARANGODB_PASSWORD=${ARANGODB_PASSWORD}
     depends_on:
       - redis
       - arangodb

@@ -299,7 +299,7 @@ class DAPPYChatCLI:
     async def show_shadow_memories(self):
         """Show pending shadow memories"""
         try:
-            response = await self.client.get(f"{self.base_url}/shadow/pending/{self.user_id}")
+            response = await self.client.get(f"{self.base_url}/shadow/pending/user/{self.user_id}")
             data = response.json()
             
             if data.get("pending_count", 0) > 0:
@@ -338,7 +338,7 @@ class DAPPYChatCLI:
         """Check for pending shadow tier confirmation and prompt user"""
         try:
             response = await self.client.get(
-                f"{self.base_url}/shadow/pending/{self.session_id}"
+                f"{self.base_url}/shadow/pending/session/{self.session_id}"
             )
             response.raise_for_status()
             data = response.json()

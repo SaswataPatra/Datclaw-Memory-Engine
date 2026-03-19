@@ -32,7 +32,7 @@ TEST_USER_ID = "test_stable_user"
 ARANGO_URL = "http://localhost:8529"
 ARANGO_DB = "dappy"
 ARANGO_USER = "root"
-ARANGO_PASSWORD = "dappy_dev_password"  # From docker-compose
+ARANGO_PASSWORD = os.getenv("ARANGODB_PASSWORD", "test_password")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 QDRANT_URL = "http://localhost:6333"
 

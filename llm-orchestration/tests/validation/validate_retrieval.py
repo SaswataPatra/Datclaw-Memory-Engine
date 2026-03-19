@@ -42,7 +42,7 @@ def evaluate_retrieval(user_id: str):
     entries = dataset['entries']
 
     client = ArangoClient(hosts='http://localhost:8529')
-    db = client.db('dappy_memories', username='root', password='dappy_dev_password')
+    db = client.db('dappy_memories', username='root', password=os.getenv('ARANGODB_PASSWORD', 'dappy_dev_password'))
 
     # Get all memories for this user
     all_memories = list(db.aql.execute("""

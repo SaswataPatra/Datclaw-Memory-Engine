@@ -92,10 +92,13 @@ async def metrics():
     """Prometheus metrics endpoint."""
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
-# Add CORS middleware
+# CORS: use CORS_ORIGINS env var in production (comma-separated), defaults to permissive for dev
+_cors_origins_raw = os.getenv("CORS_ORIGINS", "")
+_cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()] if _cors_origins_raw else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately in production
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1242,7 +1245,7 @@ async def export_training_data_to_file(
 
 
 # Shadow tier endpoints
-@app.get("/shadow/pending/{user_id}")
+@app.get("/shadow/pending/user/{user_id}")
 async def get_pending_shadow_memories(user_id: str):
     """Get pending shadow memories for user"""
     try:
@@ -1389,7 +1392,7 @@ class ShadowConfirmationResponse(BaseModel):
     node_id: Optional[str] = None
 
 
-@app.get("/shadow/pending/{session_id}")
+@app.get("/shadow/pending/session/{session_id}")
 async def get_pending_shadow(session_id: str):
     """
     Get pending shadow tier confirmation for a session
@@ -1452,7 +1455,8 @@ async def root():
             "context_management": "/context/manage",
             "ego_scoring": "/scoring/ego",
             "consolidation_stats": "/consolidation/stats",
-            "shadow_pending": "/shadow/pending/{user_id}",
+            "shadow_pending_user": "/shadow/pending/user/{user_id}",
+            "shadow_pending_session": "/shadow/pending/session/{session_id}",
             "shadow_approve": "/shadow/approve/{user_id}/{shadow_id}",
             "shadow_reject": "/shadow/reject/{user_id}/{shadow_id}",
             "contradiction_check": "/contradiction/check",

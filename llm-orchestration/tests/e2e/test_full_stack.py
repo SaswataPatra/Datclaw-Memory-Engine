@@ -299,7 +299,7 @@ class TestShadowTier:
         user_id = "e2e_shadow_user"
         
         response = requests.get(
-            f"{PYTHON_BASE_URL}/shadow/pending/{user_id}"
+            f"{PYTHON_BASE_URL}/shadow/pending/user/{user_id}"
         )
         
         assert response.status_code == 200

@@ -39,7 +39,7 @@ async def main():
     arango_config = config['arangodb']
     # Replace env vars with defaults
     url = arango_config['url'].replace('${ARANGO_HOST:localhost}', 'localhost').replace('${ARANGO_PORT:8529}', '8529')
-    password = arango_config['password'].replace('${ARANGO_PASSWORD:dappy_dev_password}', 'dappy_dev_password')
+    password = arango_config['password'].replace('${ARANGODB_PASSWORD}', os.getenv('ARANGODB_PASSWORD', 'dappy_dev_password'))
     
     client = ArangoClient(hosts=url)
     db = client.db(

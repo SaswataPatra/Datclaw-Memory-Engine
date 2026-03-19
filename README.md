@@ -184,6 +184,7 @@ Detailed documentation is available in the [`docs/`](docs/) directory:
 - [Dependencies](llm-orchestration/DEPENDENCIES.md) - Core vs ML installation
 - [Contributing](CONTRIBUTING.md) - How to contribute to the project
 - [Architecture](docs/architecture.md) - System design and data flow
+- [Architecture TODO](docs/ARCHITECTURE_TODO.md) - Refactoring backlog
 - [KG Maintenance](docs/kg-maintenance.md) - How the knowledge graph stays clean
 - [Ego Scoring](docs/ego-scoring.md) - Memory importance algorithm
 - [Benchmarking](docs/benchmarking.md) - Running MemoryBench tests

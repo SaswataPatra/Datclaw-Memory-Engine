@@ -48,7 +48,7 @@ arangodb:
   url: "http://${ARANGO_HOST:localhost}:${ARANGO_PORT:8529}"
   database: "dappy_memories"
   username: "root"
-  password: "${ARANGO_PASSWORD:dappy_dev_password}"  # From env
+  password: "${ARANGODB_PASSWORD}"  # From env (required)
   memory_collection: "memories"
   memory_edges: "memory_edges"
   message_collection: "messages"
