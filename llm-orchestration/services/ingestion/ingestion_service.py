@@ -106,19 +106,61 @@ class IngestionService:
         import time
         start_time = time.time()
         
+        try:
+            # Parse the source
+            chunks = await parser.parse(source, **parser_kwargs)
+            return await self.ingest_parsed_chunks(
+                user_id=user_id,
+                session_id=session_id,
+                chunks=chunks,
+                source_type=source_type,
+                start_time=start_time,
+            )
+        except Exception as e:
+            result = {
+                "status": "error",
+                "chunks_parsed": 0,
+                "memories_created": 0,
+                "errors": [f"Parser error: {str(e)}"],
+                "session_id": session_id,
+            }
+            logger.error(f"Ingestion failed: {e}", exc_info=True)
+            return result
+    
+    async def ingest_parsed_chunks(
+        self,
+        user_id: str,
+        session_id: str,
+        chunks: List[ConversationChunk],
+        source_type: str,
+        start_time: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        Run scoring, events, and KG for pre-parsed chunks (e.g. from ``ingestion.IngestionPipeline``).
+        """
+        import time
+
+        if start_time is None:
+            start_time = time.time()
+
         result = {
             "status": "success",
-            "chunks_parsed": 0,
+            "chunks_parsed": len(chunks),
             "memories_created": 0,
             "errors": [],
             "session_id": session_id,
         }
-        
+
+        logger.info(
+            f"Processing {len(chunks)} pre-parsed chunks: user={user_id}, type={source_type}, session={session_id}"
+        )
+
+        # Ensure downstream metadata uses the resolved source key
+        for c in chunks:
+            if not getattr(c, "source_type", None) or c.source_type in ("unknown", ""):
+                c.source_type = source_type
+
         try:
-            # Parse the source
-            chunks = await parser.parse(source, **parser_kwargs)
-            result["chunks_parsed"] = len(chunks)
-            
             logger.info(f"Parsed {len(chunks)} chunks from {source_type} source")
             
             # Pre-compute batch consolidation (1 LLM call per 10 memories instead of N)
@@ -199,11 +241,11 @@ class IngestionService:
             
         except Exception as e:
             result["status"] = "error"
-            result["errors"].append(f"Parser error: {str(e)}")
+            result["errors"].append(f"Processing error: {str(e)}")
             logger.error(f"Ingestion failed: {e}", exc_info=True)
-        
+
         return result
-    
+
     async def _process_chunk(
         self,
         user_id: str,

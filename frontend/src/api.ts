@@ -21,16 +21,43 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new ApiError(body.detail || 'Request failed', res.status);
+    throw new ApiError(
+      typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail) || 'Request failed',
+      res.status
+    );
+  }
+
+  return res.json();
+}
+
+/** Multipart upload (do not set Content-Type — browser sets boundary). */
+async function requestMultipart<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(),
+    },
+    body: form,
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new ApiError(
+      typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail) || 'Request failed',
+      res.status
+    );
   }
 
   return res.json();
 }
 
 export class ApiError extends Error {
-  constructor(message: string, public status: number) {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
     super(message);
     this.name = 'ApiError';
+    this.status = status;
   }
 }
 
@@ -58,6 +85,52 @@ export interface ChatResponse {
   debug?: Record<string, unknown>;
 }
 
+export interface PipelineStage {
+  name: string;
+  ok: boolean;
+  detail: string;
+  duration_ms: number;
+}
+
+export interface IngestRequest {
+  source_type: string;
+  source: string;
+  session_id?: string;
+}
+
+export interface IngestSpecRequest {
+  source: string;
+  category: string;
+  subtype: string;
+  session_id?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface IngestResponse {
+  status: string;
+  chunks_parsed: number;
+  memories_created: number;
+  errors: string[];
+  session_id: string;
+  elapsed_seconds?: number;
+  seconds_per_memory?: number;
+  pipeline_stages?: PipelineStage[];
+}
+
+export interface AdapterInfo {
+  source_type: string;
+  category: string | null;
+  subtype: string | null;
+  name: string;
+  enabled: boolean;
+  description: string;
+  input_mode: string;
+}
+
+export interface AdaptersResponse {
+  adapters: AdapterInfo[];
+}
+
 export const auth = {
   signup(username: string, email: string, password: string, display_name?: string) {
     return request<TokenResponse>('/auth/signup', {
@@ -78,32 +151,37 @@ export const auth = {
   },
 };
 
-export interface IngestRequest {
-  source_type: string;
-  source: string;
-  session_id?: string;
-}
-
-export interface IngestResponse {
-  status: string;
-  chunks_parsed: number;
-  memories_created: number;
-  errors: string[];
-  session_id: string;
-}
-
 export const user = {
   deleteAllMemories() {
     return request<{ status: string; message: string; deleted: Record<string, unknown> }>('/user/memories', {
       method: 'DELETE',
     });
   },
-  
+
   ingestMemories(data: IngestRequest) {
     return request<IngestResponse>('/user/ingest', {
       method: 'POST',
       body: JSON.stringify(data),
     });
+  },
+
+  ingestMemoriesSpec(data: IngestSpecRequest) {
+    return request<IngestResponse>('/user/ingest/spec', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  listIngestAdapters() {
+    return request<AdaptersResponse>('/user/ingest/adapters');
+  },
+
+  /** Upload a file (PDF or text-ish); server infers pdf vs text from extension. */
+  ingestUpload(file: File, sessionId?: string) {
+    const form = new FormData();
+    form.append('file', file);
+    if (sessionId) form.append('session_id', sessionId);
+    return requestMultipart<IngestResponse>('/user/ingest/upload', form);
   },
 };
 

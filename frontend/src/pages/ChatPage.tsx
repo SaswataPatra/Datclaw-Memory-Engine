@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, type FormEvent, type KeyboardEvent } from 'react';
 import { useAuth } from '../auth-context';
 import { chat as chatApi, user as userApi, ApiError } from '../api';
+import ImportMemoriesModal from '../components/ImportMemoriesModal';
 
 interface Message {
   id: string;
@@ -26,9 +27,7 @@ export default function ChatPage() {
   const [error, setError] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
-  const [importUrl, setImportUrl] = useState('');
-  const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<string | null>(null);
+  const [importToast, setImportToast] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -86,7 +85,11 @@ export default function ChatPage() {
   }
 
   async function handleClearMemories() {
-    if (!confirm('⚠️ This will delete ALL your memories, entities, and conversation history. This cannot be undone. Continue?')) {
+    if (
+      !confirm(
+        '⚠️ This will delete ALL your memories, entities, and conversation history. This cannot be undone. Continue?'
+      )
+    ) {
       return;
     }
 
@@ -103,50 +106,6 @@ export default function ChatPage() {
     } finally {
       setDeleting(false);
     }
-  }
-
-  async function handleImportMemories() {
-    if (!importUrl.trim()) {
-      setImportResult('Please enter a valid URL');
-      return;
-    }
-
-    setImporting(true);
-    setImportResult(null);
-    setError('');
-
-    try {
-      const result = await userApi.ingestMemories({
-        source_type: 'chatgpt',
-        source: importUrl.trim(),
-      });
-
-      if (result.status === 'success') {
-        setImportResult(
-          `✅ Successfully imported ${result.memories_created} memories from ${result.chunks_parsed} conversation chunks!`
-        );
-        setImportUrl('');
-        
-        if (result.errors.length > 0) {
-          setImportResult(prev => 
-            `${prev}\n\n⚠️ ${result.errors.length} errors occurred:\n${result.errors.slice(0, 3).join('\n')}`
-          );
-        }
-      } else {
-        setImportResult(`❌ Import failed: ${result.errors.join(', ')}`);
-      }
-    } catch (err) {
-      const errMsg = err instanceof ApiError ? err.message : 'Failed to import memories';
-      setImportResult(`❌ ${errMsg}`);
-    } finally {
-      setImporting(false);
-    }
-  }
-
-  function closeImportModal() {
-    setShowImportModal(false);
-    setImportUrl('');
-    setImportResult(null);
   }
 
   return (
@@ -168,13 +127,15 @@ export default function ChatPage() {
               {user?.display_name || user?.username}
             </span>
             <button
+              type="button"
               onClick={() => setShowImportModal(true)}
               className="px-3 py-1.5 text-xs font-medium text-blue-400 hover:text-blue-300 bg-surface-800 hover:bg-blue-900/30 rounded-lg transition-colors"
-              title="Import memories from ChatGPT"
+              title="Import memories from files, URLs, or paste"
             >
               Import Memories
             </button>
             <button
+              type="button"
               onClick={handleClearMemories}
               disabled={deleting}
               className="px-3 py-1.5 text-xs font-medium text-red-400 hover:text-red-300 bg-surface-800 hover:bg-red-900/30 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -183,6 +144,7 @@ export default function ChatPage() {
               {deleting ? 'Clearing...' : 'Clear Memories'}
             </button>
             <button
+              type="button"
               onClick={logout}
               className="px-3 py-1.5 text-xs font-medium text-surface-400 hover:text-white bg-surface-800 hover:bg-surface-700 rounded-lg transition-colors"
             >
@@ -195,6 +157,12 @@ export default function ChatPage() {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto w-full px-6 py-6">
+          {importToast && (
+            <div className="mb-4 p-3 rounded-lg bg-green-900/20 border border-green-800/40 text-green-300 text-sm">
+              {importToast}
+            </div>
+          )}
+
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full min-h-[60vh] text-center">
               <div className="w-20 h-20 rounded-2xl bg-primary-600/10 flex items-center justify-center mb-6">
@@ -277,68 +245,24 @@ export default function ChatPage() {
             className="flex-none w-11 h-11 rounded-xl bg-primary-600 hover:bg-primary-500 disabled:bg-surface-700 text-white flex items-center justify-center transition-colors disabled:cursor-not-allowed"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"
+              />
             </svg>
           </button>
         </form>
       </div>
 
       {showImportModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-surface-900 border border-surface-700 rounded-2xl shadow-2xl max-w-lg w-full p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold text-white">Import Memories</h2>
-              <button
-                onClick={closeImportModal}
-                className="text-surface-400 hover:text-white transition-colors"
-              >
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <p className="text-surface-400 text-sm mb-4">
-              Paste a ChatGPT shared conversation link to import memories from it.
-            </p>
-
-            <input
-              type="text"
-              value={importUrl}
-              onChange={(e) => setImportUrl(e.target.value)}
-              placeholder="https://chatgpt.com/share/..."
-              disabled={importing}
-              className="w-full px-4 py-3 rounded-lg bg-surface-800 border border-surface-700/50 text-white placeholder-surface-500 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500/40 disabled:opacity-50 mb-4"
-            />
-
-            {importResult && (
-              <div className={`mb-4 p-3 rounded-lg text-sm whitespace-pre-wrap ${
-                importResult.startsWith('✅') 
-                  ? 'bg-green-900/20 border border-green-700/30 text-green-300'
-                  : 'bg-red-900/20 border border-red-700/30 text-red-300'
-              }`}>
-                {importResult}
-              </div>
-            )}
-
-            <div className="flex gap-3">
-              <button
-                onClick={closeImportModal}
-                disabled={importing}
-                className="flex-1 px-4 py-2.5 rounded-lg bg-surface-800 hover:bg-surface-700 text-surface-300 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleImportMemories}
-                disabled={!importUrl.trim() || importing}
-                className="flex-1 px-4 py-2.5 rounded-lg bg-primary-600 hover:bg-primary-500 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {importing ? 'Importing...' : 'Import'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ImportMemoriesModal
+          onClose={() => setShowImportModal(false)}
+          onSuccess={(r) => {
+            setImportToast(`Imported ${r.memories_created} memories (${r.chunks_parsed} chunks).`);
+            window.setTimeout(() => setImportToast(null), 6000);
+          }}
+        />
       )}
     </div>
   );

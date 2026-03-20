@@ -30,6 +30,9 @@ This document captures the architectural improvements identified in the codebase
 
 ## Medium Priority (Code Quality)
 
+### ✅ Modular ingestion (`llm-orchestration/ingestion/`)
+- **Done:** Separate extraction package (contracts, `IngestionPipeline`, `AdapterRegistry`, file + LLM-share adapters). Wired to `IngestionService.ingest_parsed_chunks`, new `POST /user/ingest/spec`, extended `POST /user/ingest` source types. See `docs/ingestion-architecture.md`.
+
 ### 7. Split `chatbot_service.py` (~1,433 lines)
 - **Issue:** Very large class, many constructor params (15+), mixed sync/async.
 - **Fix:**

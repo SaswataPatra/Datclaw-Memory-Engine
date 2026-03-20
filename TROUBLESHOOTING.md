@@ -355,6 +355,28 @@ pip install -r requirements-ml.txt
 
 ---
 
+## Ingestion
+
+### ChatGPT share import returns 403 Forbidden
+
+**Problem:** The backend calls `https://chatgpt.com/backend-api/share/{id}`. OpenAI often blocks non-browser / datacenter clients with **403** (Cloudflare and bot protection). This is **not** your API key — share links are fetched over HTTPS like a browser, not via the OpenAI API.
+
+**What we do in code:** The parser first loads the public share page (to pick up cookies), then calls the JSON API with browser-like headers.
+
+**If it still fails:**
+
+1. **Optional cookie (local dev only)** — In `llm-orchestration/.env` set:
+   ```bash
+   CHATGPT_SHARE_COOKIE='__cf_bm=...; oai-did=...'
+   ```
+   Copy the **Cookie** header value from your browser’s devtools on `chatgpt.com` while logged in (same session as viewing the share). **Do not commit this.** Rotate cookies if leaked. This may still fail from some networks.
+
+2. **Avoid share URL import** — Use **Session JSON** or **paste text** in the import UI, or export the conversation from ChatGPT and ingest the file.
+
+3. **Network** — Try from a residential IP / different network if 403 persists.
+
+---
+
 ## Common Gotchas
 
 1. **Virtual environment not activated:** Always run `source .venv/bin/activate` before Python commands

@@ -14,10 +14,12 @@ Phase 3 Implementation
 """
 
 import logging
-import networkx as nx
 from typing import Dict, List, Any, Optional, Set, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
+
+# Lazy import networkx to avoid ImportError when not installed
+# import networkx as nx  # imported in __init__ when needed
 
 from .schemas import ThoughtEdge, Entity, RelationCategory
 
@@ -64,6 +66,15 @@ class PPRRetrieval:
                 - ppr.max_iter: Max iterations (default 100)
                 - ppr.top_k: Return top k nodes (default 10)
         """
+        # Import networkx here to avoid module-level import error
+        try:
+            import networkx as nx
+            self.nx = nx
+        except ImportError:
+            raise ImportError(
+                "PPR retrieval requires networkx. Install with: pip install networkx"
+            )
+        
         self.db = db
         self.config = config or {}
         
@@ -134,15 +145,15 @@ class PPRRetrieval:
             )
         
         try:
-            ppr_scores = nx.pagerank(
+            ppr_scores = self.nx.pagerank(
                 graph,
                 alpha=self.alpha,
                 personalization=personalization,
                 max_iter=self.max_iter
             )
-        except nx.PowerIterationFailedConvergence:
+        except self.nx.PowerIterationFailedConvergence:
             logger.warning("PPR did not converge, using partial result")
-            ppr_scores = nx.pagerank(
+            ppr_scores = self.nx.pagerank(
                 graph,
                 alpha=self.alpha,
                 personalization=personalization,
@@ -192,13 +203,13 @@ class PPRRetrieval:
         context_filter: Optional[str] = None,
         temporal_filter: Optional[datetime] = None,
         max_hops: int = 3
-    ) -> Tuple[nx.DiGraph, Dict[str, Any], Dict[Tuple[str, str], Any]]:
+    ) -> Tuple[Any, Dict[str, Any], Dict[Tuple[str, str], Any]]:  # Returns (nx.DiGraph, node_data, edge_data)
         """
         Load subgraph from ArangoDB.
         
         Uses AQL traversal to get nodes within max_hops.
         """
-        graph = nx.DiGraph()
+        graph = self.nx.DiGraph()
         node_data = {}
         edge_data = {}
         
@@ -463,7 +474,7 @@ class PPRRetrieval:
             return None
         
         try:
-            path = nx.shortest_path(graph, source_entity, target_entity)
+            path = self.nx.shortest_path(graph, source_entity, target_entity)
             
             # Build path result
             result = []
@@ -484,7 +495,7 @@ class PPRRetrieval:
             
             return result
             
-        except nx.NetworkXNoPath:
+        except self.nx.NetworkXNoPath:
             return None
         except Exception as e:
             logger.error(f"Path finding failed: {e}")

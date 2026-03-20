@@ -47,11 +47,13 @@ python -m spacy download en_core_web_sm
 | **Web** | fastapi, uvicorn, pydantic | API server |
 | **Databases** | redis, python-arango, qdrant-client | Data storage |
 | **LLM** | openai, anthropic, tiktoken | AI providers |
-| **Auth** | passlib, python-jose, bcrypt | Authentication |
+| **Auth** | python-jose, bcrypt | Authentication (passwords hashed with bcrypt directly) |
 | **Config** | pyyaml, python-dotenv | Configuration |
 | **Monitoring** | prometheus-client, structlog | Logging/metrics |
 | **Testing** | pytest, pytest-asyncio, httpx | Test suite |
 | **Utilities** | numpy, nltk, rich, tenacity | Helpers |
+
+**Optional (not pinned in `requirements.txt`):** `pypdf` — only needed for PDF ingestion (`source_type` / `pdf_file`). Plain text and Markdown files use the standard library.
 
 ### requirements-ml.txt (Optional)
 

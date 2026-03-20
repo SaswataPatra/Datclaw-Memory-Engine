@@ -926,11 +926,11 @@ When users share personal information (preferences, facts about themselves, etc.
                 # Detect memory triggers
                 triggers = self.regex_fallback.detect_triggers(user_message)
                 
-                if not triggers:
-                    logger.debug("No memory triggers detected")
-                    return
-                
-                logger.info(f"Memory triggers detected: {triggers}")
+                if triggers:
+                    logger.info(f"Memory triggers detected: {triggers}")
+                else:
+                    logger.debug("No memory triggers detected, storing with low importance")
+                    triggers = []
                 
                 # Calculate dynamic explicit importance based on triggers
                 # Inline calculation (same logic as MLScorer._calculate_explicit_importance)
@@ -941,10 +941,10 @@ When users share personal information (preferences, facts about themselves, etc.
                     'preference': 0.9,
                     'fact': 0.7
                 }
-                explicit_importance = max(importance_map.get(trigger, 0.5) for trigger in triggers) if triggers else 0.5
+                explicit_importance = max(importance_map.get(trigger, 0.5) for trigger in triggers) if triggers else 0.3
                 
-                # Analyze sentiment
-                sentiment_score = self._analyze_sentiment(user_message)
+                # Analyze sentiment (simple heuristic for now)
+                sentiment_score = 0.5  # Neutral default
                 
                 # Create a memory with enhanced features
                 memory_data = {
