@@ -24,8 +24,12 @@ class QdrantConsumer:
     Responsibilities:
     - Generate embeddings for memory content
     - Index vectors in Qdrant (fast vector store)
-    - Store minimal payload (node_id + version only)
+    - Store minimal payload (node_id, entities, version, etc.)
     - Handle versioning for idempotency
+    - Update entity tags when memory.entities_extracted events arrive
+    
+    Note: Entities are extracted AFTER initial indexing (async KG consolidation),
+    so we handle both initial indexing and entity updates.
     """
     
     def __init__(self, config: Dict[str, Any], event_bus: EventBus):
@@ -90,7 +94,7 @@ class QdrantConsumer:
         """Start consuming memory.upsert events"""
         self._running = True
         
-        # Subscribe to memory.upsert topic
+        # Subscribe to memory.upsert topic (for initial indexing)
         await self.event_bus.subscribe(
             topic="memory.upsert",
             handler=self._handle_memory_upsert,
@@ -111,7 +115,10 @@ class QdrantConsumer:
         """
         Handle memory.upsert event
         
-        Generates embedding and indexes in Qdrant
+        Generates embedding and indexes in Qdrant.
+        
+        Note: If event_type is 'memory.entities_extracted', only updates the entities
+        field without re-embedding (entities are extracted after initial indexing).
         """
         
         try:
@@ -119,9 +126,30 @@ class QdrantConsumer:
             
             node_id = payload.get('node_id')
             version = payload.get('version', 1)
+            event_type = event.event_type
             
             # Check if this version already exists (idempotency)
             existing_point = self._get_existing_point(node_id)
+            
+            # Special handling for entity extraction events (update entities only)
+            if event_type == "memory.entities_extracted":
+                if not existing_point:
+                    logger.warning(f"Cannot update entities for non-existent point: {node_id}")
+                    return
+                
+                # Update only the entities field in the existing point
+                updated_payload = existing_point.payload
+                updated_payload["entities"] = payload.get('entities', [])
+                updated_payload["version"] = version
+                
+                self.client.set_payload(
+                    collection_name=self.collection_name,
+                    payload=updated_payload,
+                    points=[existing_point.id]
+                )
+                
+                logger.info(f"Updated entities in Qdrant: {node_id} ({len(payload.get('entities', []))} entities)")
+                return
             
             if existing_point and existing_point.payload.get('version', 0) >= version:
                 logger.debug(

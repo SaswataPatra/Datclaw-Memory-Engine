@@ -3,12 +3,17 @@ DAPPY LLM Orchestration Service - FastAPI Application
 Main API entry point
 """
 
-from fastapi import FastAPI, HTTPException, Depends
+from pathlib import Path as FsPath
+import os
+import tempfile
+
+from fastapi import FastAPI, HTTPException, Depends, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import logging
+import uuid
 import redis.asyncio as redis
 
 from config import load_config
@@ -180,9 +185,30 @@ class ChatResponse(BaseModel):
 
 
 class IngestRequest(BaseModel):
-    source_type: str = Field(..., description="Type of source: 'chatgpt', 'zip', 'text'")
-    source: str = Field(..., description="Source identifier (URL, file path, etc.)")
+    source_type: str = Field(
+        ...,
+        description=(
+            "Registered parser key: chatgpt, session_json, text_file, pdf_file, text_paste"
+        ),
+    )
+    source: str = Field(..., description="Source identifier (URL, file path, raw JSON string, etc.)")
     session_id: Optional[str] = None
+
+
+class IngestSpecRequest(BaseModel):
+    """Structured ingestion using category + subtype (see docs/ingestion-architecture.md)."""
+
+    source: str = Field(..., description="URL, path, or raw content depending on subtype")
+    category: str = Field(
+        default="llm_chat",
+        description="llm_chat | file | web | api",
+    )
+    subtype: str = Field(
+        default="chatgpt",
+        description="e.g. chatgpt, session_json, text_plain, markdown, pdf, paste",
+    )
+    session_id: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class IngestResponse(BaseModel):
@@ -191,6 +217,59 @@ class IngestResponse(BaseModel):
     memories_created: int
     errors: List[str]
     session_id: str
+    elapsed_seconds: Optional[float] = None
+    seconds_per_memory: Optional[float] = None
+    pipeline_stages: Optional[List[Dict[str, Any]]] = None
+
+
+class AdapterInfoSchema(BaseModel):
+    """Metadata for one ingestion adapter (drives import UI)."""
+
+    source_type: str
+    category: Optional[str] = None
+    subtype: Optional[str] = None
+    name: str
+    enabled: bool = True
+    description: str = ""
+    input_mode: str = Field(
+        default="url",
+        description="Suggested UI: file | url | text",
+    )
+
+
+class AdaptersListResponse(BaseModel):
+    adapters: List[AdapterInfoSchema]
+
+
+def _adapter_description_and_input_mode(
+    source_type: str, category: Optional[str], subtype: Optional[str]
+) -> tuple[str, str]:
+    """Human-readable blurb + input_mode for the frontend."""
+    key = source_type.lower()
+    if key == "chatgpt":
+        return (
+            "Import from a ChatGPT shared conversation URL (chatgpt.com/share/…).",
+            "url",
+        )
+    if key == "session_json":
+        return (
+            "Paste MemoryBench / unified session JSON (array or object with messages).",
+            "text",
+        )
+    if key == "text_file":
+        return (
+            "Upload a plain text or Markdown file (.txt, .md, README).",
+            "file",
+        )
+    if key == "pdf_file":
+        return ("Upload a PDF document (requires pypdf on the server).", "file")
+    if key == "text_paste":
+        return ("Paste raw text or notes to store as a memory.", "text")
+    if category == "file" or key.endswith("_file"):
+        return (f"Import from file ({subtype or 'file'}).", "file")
+    if category == "llm_chat":
+        return ("Paste or enter a share URL for this provider.", "url")
+    return ("Import content from this source.", "url")
 
 
 # Startup event
@@ -437,10 +516,17 @@ async def startup_event():
             config=config.all
         )
         
-        # Register parsers
-        ingestion_service.register_parser("chatgpt", ChatGPTShareParser())
-        ingestion_service.register_parser("session_json", SessionJsonParser())
-        logger.info("Ingestion Service initialized with ChatGPT + session_json parsers")
+        # Register parsers: auto-discover all adapters from ingestion module
+        from ingestion import build_default_registry
+        from services.ingestion.parser_adapter_bridge import SourceAdapterParser
+
+        adapter_registry = build_default_registry()
+        registered_keys = []
+        for source_type_key, adapter in adapter_registry._adapters.items():
+            ingestion_service.register_parser(source_type_key, SourceAdapterParser(adapter))
+            registered_keys.append(source_type_key)
+
+        logger.info(f"Ingestion Service initialized with {len(registered_keys)} adapters: {', '.join(registered_keys)}")
         
         # Initialize Contradiction Signal Detector (lightweight, no LLM)
         from core.contradiction_detector import ContradictionSignalDetector
@@ -564,39 +650,197 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     return UserResponse(**current_user)
 
 
+def _ingest_result_to_response(result: Dict[str, Any]) -> IngestResponse:
+    """Map service dict to IngestResponse (optional keys)."""
+    return IngestResponse(
+        status=result["status"],
+        chunks_parsed=result["chunks_parsed"],
+        memories_created=result["memories_created"],
+        errors=result["errors"],
+        session_id=result["session_id"],
+        elapsed_seconds=result.get("elapsed_seconds"),
+        seconds_per_memory=result.get("seconds_per_memory"),
+        pipeline_stages=result.get("pipeline_stages"),
+    )
+
+
+@app.get("/user/ingest/adapters", response_model=AdaptersListResponse)
+async def list_ingest_adapters(current_user: dict = Depends(get_current_user)):
+    """List registered ingestion adapters for the import UI."""
+    from ingestion import build_default_registry
+
+    _ = current_user  # auth required
+    registry = build_default_registry()
+    out: List[AdapterInfoSchema] = []
+
+    for key, adapter in registry._adapters.items():
+        cls = type(adapter)
+        cat = getattr(adapter, "category", None) or getattr(cls, "category", None)
+        sub = getattr(adapter, "subtype", None) or getattr(cls, "subtype", None)
+        if not cat:
+            if key == "chatgpt":
+                cat, sub = "llm_chat", "chatgpt"
+            elif key == "session_json":
+                cat, sub = "llm_chat", "session_json"
+        enabled = bool(getattr(cls, "enabled", True))
+        name = key.replace("_", " ").title()
+        desc, input_mode = _adapter_description_and_input_mode(key, cat, sub)
+        out.append(
+            AdapterInfoSchema(
+                source_type=key,
+                category=cat,
+                subtype=sub,
+                name=name,
+                enabled=enabled,
+                description=desc,
+                input_mode=input_mode,
+            )
+        )
+
+    out.sort(key=lambda a: (a.category or "", a.source_type))
+    return AdaptersListResponse(adapters=out)
+
+
+@app.post("/user/ingest/upload", response_model=IngestResponse)
+async def ingest_upload(
+    current_user: dict = Depends(get_current_user),
+    file: UploadFile = File(...),
+    session_id: Optional[str] = Form(None),
+):
+    """
+    Upload a file from the browser; server writes a temp file and runs the file ingest pipeline.
+
+    PDF vs text is inferred from filename extension.
+    """
+    filename = file.filename or "upload"
+    suffix = FsPath(filename).suffix.lower()
+    if suffix == ".pdf":
+        source_type = "pdf_file"
+    else:
+        source_type = "text_file"
+
+    tmp_path: Optional[str] = None
+    try:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix or ".txt")
+        tmp_path = tmp.name
+        body = await file.read()
+        tmp.write(body)
+        tmp.close()
+        result = await ingestion_service.ingest(
+            user_id=current_user["user_id"],
+            source_type=source_type,
+            source=tmp_path,
+            session_id=session_id,
+        )
+        return _ingest_result_to_response(result)
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
 @app.post("/user/ingest", response_model=IngestResponse)
 async def ingest_memories(request: IngestRequest, current_user: dict = Depends(get_current_user)):
     """
     Ingest memories from external sources (requires authentication).
-    
-    Supports:
-    - ChatGPT shared conversation links
-    - More formats coming soon (ZIP archives, plain text, etc.)
+
+    ``source_type`` must match a registered parser (see ``IngestRequest`` description).
     """
     import time as _time
     from core.metrics import INGESTION_DURATION, INGESTION_CHUNKS
-    
+
     _start = _time.time()
     try:
         user_id = current_user["user_id"]
-        
+
         result = await ingestion_service.ingest(
             user_id=user_id,
             source_type=request.source_type,
             source=request.source,
-            session_id=request.session_id
+            session_id=request.session_id,
         )
-        
+
         INGESTION_DURATION.labels(source_type=request.source_type).observe(_time.time() - _start)
-        INGESTION_CHUNKS.labels(source_type=request.source_type, outcome='success').inc(result.get('memories_created', 0))
-        if result.get('errors'):
-            INGESTION_CHUNKS.labels(source_type=request.source_type, outcome='error').inc(len(result['errors']))
-        
-        return IngestResponse(**result)
+        INGESTION_CHUNKS.labels(source_type=request.source_type, outcome="success").inc(
+            result.get("memories_created", 0)
+        )
+        if result.get("errors"):
+            INGESTION_CHUNKS.labels(source_type=request.source_type, outcome="error").inc(
+                len(result["errors"])
+            )
+
+        return _ingest_result_to_response(result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Ingestion error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/user/ingest/spec", response_model=IngestResponse)
+async def ingest_memories_spec(
+    request: IngestSpecRequest, current_user: dict = Depends(get_current_user)
+):
+    """
+    Ingest using structured category + subtype (maps to the same adapters as ``/user/ingest``).
+
+    Runs the extraction pipeline first, then the standard memory pipeline.
+    """
+    import time as _time
+    from core.metrics import INGESTION_DURATION, INGESTION_CHUNKS
+
+    from ingestion import IngestionJobSpec, IngestionPipeline, SourceCategory, SourceSubtype, build_default_registry
+    from ingestion.registry import resolve_source_type
+
+    _start = _time.time()
+    try:
+        try:
+            cat = SourceCategory(request.category)
+            sub = SourceSubtype(request.subtype)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid category or subtype: {e}")
+
+        spec = IngestionJobSpec(
+            source=request.source,
+            category=cat,
+            subtype=sub,
+            metadata=request.metadata or {},
+        )
+        pipeline = IngestionPipeline(build_default_registry())
+        chunks, pr = await pipeline.run_extract(spec)
+        if pr.error or not chunks:
+            raise HTTPException(
+                status_code=400,
+                detail=pr.error or "No content extracted",
+            )
+
+        from ingestion.registry import resolve_source_type as resolve_st
+
+        st_key = resolve_st(spec, pipeline._registry)
+        user_id = current_user["user_id"]
+        session_id = request.session_id or f"ingestion_{uuid.uuid4().hex[:8]}"
+        result = await ingestion_service.ingest_parsed_chunks(
+            user_id=user_id,
+            session_id=session_id,
+            chunks=chunks,
+            source_type=st_key,
+        )
+        result["pipeline_stages"] = [s for s in pr.to_dict().get("stages", [])]
+
+        INGESTION_DURATION.labels(source_type=st_key).observe(_time.time() - _start)
+        INGESTION_CHUNKS.labels(source_type=st_key, outcome="success").inc(result.get("memories_created", 0))
+        if result.get("errors"):
+            INGESTION_CHUNKS.labels(source_type=st_key, outcome="error").inc(len(result["errors"]))
+
+        return _ingest_result_to_response(result)
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Ingestion (spec) error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -630,19 +874,33 @@ async def delete_all_user_memories(current_user: dict = Depends(get_current_user
         )
         deleted_counts['memories'] = len(list(mem_result))
         
-        # Delete entities (legacy collection)
-        ent_result = arango_db.aql.execute(
-            "FOR e IN entities FILTER e.user_id == @user_id REMOVE e IN entities RETURN OLD",
-            bind_vars={'user_id': user_id}
-        )
-        deleted_counts['entities'] = len(list(ent_result))
+        # Delete entities (legacy collection - skip if not exists)
+        try:
+            ent_result = arango_db.aql.execute(
+                "FOR e IN entities FILTER e.user_id == @user_id REMOVE e IN entities RETURN OLD",
+                bind_vars={'user_id': user_id}
+            )
+            deleted_counts['entities'] = len(list(ent_result))
+        except Exception as e:
+            if "collection or view not found" in str(e):
+                deleted_counts['entities'] = 0
+                logger.debug("Legacy 'entities' collection not found, skipping")
+            else:
+                raise
         
-        # Delete candidate edges (legacy collection)
-        edge_result = arango_db.aql.execute(
-            "FOR e IN candidate_edges FILTER e.user_id == @user_id REMOVE e IN candidate_edges RETURN OLD",
-            bind_vars={'user_id': user_id}
-        )
-        deleted_counts['edges'] = len(list(edge_result))
+        # Delete candidate edges (legacy collection - skip if not exists)
+        try:
+            edge_result = arango_db.aql.execute(
+                "FOR e IN candidate_edges FILTER e.user_id == @user_id REMOVE e IN candidate_edges RETURN OLD",
+                bind_vars={'user_id': user_id}
+            )
+            deleted_counts['edges'] = len(list(edge_result))
+        except Exception as e:
+            if "collection or view not found" in str(e):
+                deleted_counts['edges'] = 0
+                logger.debug("Legacy 'candidate_edges' collection not found, skipping")
+            else:
+                raise
         
         # Delete entity relations (new KG collection)
         rel_result = arango_db.aql.execute(

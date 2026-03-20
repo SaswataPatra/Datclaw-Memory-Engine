@@ -20,8 +20,9 @@ Phase 1D Implementation
 import logging
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
-import spacy
-from spacy.tokens import Token, Span, Doc
+
+# Lazy import spaCy to avoid ImportError when not installed
+# Type hints use Any instead of spacy.tokens types
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +134,7 @@ class DependencyExtractor:
     
     def __init__(
         self,
-        nlp: Optional[spacy.language.Language] = None,
+        nlp: Optional[Any] = None,  # spacy.language.Language
         config: Optional[Dict[str, Any]] = None
     ):
         """
@@ -180,7 +181,7 @@ class DependencyExtractor:
         doc = self.nlp(text)
         return self.extract_from_doc(doc)
     
-    def extract_from_doc(self, doc: Doc, enabled_patterns: Optional[List[str]] = None) -> List[DependencyTriple]:
+    def extract_from_doc(self, doc: Any, enabled_patterns: Optional[List[str]] = None) -> List[DependencyTriple]:  # doc: spacy.tokens.Doc
         """
         Main entry point - extract patterns from spaCy Doc.
         
@@ -270,7 +271,7 @@ class DependencyExtractor:
     
     # ========== HELPER METHODS ==========
     
-    def _get_full_span(self, token: Token) -> Span:
+    def _get_full_span(self, token: Any) -> Any:  # token: Token -> Span
         """
         Get full subtree span for multi-word entities.
         
@@ -280,11 +281,11 @@ class DependencyExtractor:
         right = max([t.i for t in token.subtree])
         return token.doc[left : right + 1]
     
-    def _detect_negation(self, token: Token) -> bool:
+    def _detect_negation(self, token: Any) -> bool:  # token: Token
         """Check if token is negated."""
         return any(child.dep_ == "neg" for child in token.children)
     
-    def _detect_modality(self, token: Token) -> Tuple[Optional[str], float]:
+    def _detect_modality(self, token: Any) -> Tuple[Optional[str], float]:  # token: Token
         """
         Detect modal verbs and return (modal, certainty_score).
         
@@ -299,7 +300,7 @@ class DependencyExtractor:
         
         return (None, 1.0)
     
-    def _detect_question(self, sent: Span) -> bool:
+    def _detect_question(self, sent: Any) -> bool:  # sent: Span
         """Check if sentence is a question."""
         # Check for question mark
         if sent.text.strip().endswith("?"):
@@ -311,7 +312,7 @@ class DependencyExtractor:
         
         return False
     
-    def _expand_conjuncts(self, token: Token) -> List[Token]:
+    def _expand_conjuncts(self, token: Any) -> List[Any]:  # token: Token -> List[Token]
         """
         Expand token to include all coordinated tokens.
         
@@ -329,11 +330,11 @@ class DependencyExtractor:
     
     def _create_triple(
         self,
-        subject_span: Span,
-        predicate: Token,
-        object_span: Span,
+        subject_span: Any,  # Span
+        predicate: Any,  # Token
+        object_span: Any,  # Span
         pattern: str,
-        sent: Span,
+        sent: Any,  # Span
         is_passive: bool = False,
         is_question: bool = False
     ) -> DependencyTriple:
@@ -388,7 +389,7 @@ class DependencyExtractor:
     
     # ========== PATTERN EXTRACTION METHODS ==========
     
-    def _extract_svo(self, doc: Doc) -> List[DependencyTriple]:
+    def _extract_svo(self, doc: Any) -> List[DependencyTriple]:  # doc: Doc
         """
         Pattern A: nsubj → VERB → dobj (simple SVO)
         
@@ -420,7 +421,7 @@ class DependencyExtractor:
         
         return results
     
-    def _extract_prepositional(self, doc: Doc) -> List[DependencyTriple]:
+    def _extract_prepositional(self, doc: Any) -> List[DependencyTriple]:  # doc: Doc
         """
         Pattern B: nsubj → VERB → prep → pobj
         
@@ -465,7 +466,7 @@ class DependencyExtractor:
         
         return results
     
-    def _extract_copula(self, doc: Doc) -> List[DependencyTriple]:
+    def _extract_copula(self, doc: Any) -> List[DependencyTriple]:  # doc: Doc
         """
         Pattern C: copula/attributive (is/are)
         
@@ -553,7 +554,7 @@ class DependencyExtractor:
         
         return results
     
-    def _extract_apposition(self, doc: Doc) -> List[DependencyTriple]:
+    def _extract_apposition(self, doc: Any) -> List[DependencyTriple]:  # doc: Doc
         """
         Pattern D: apposition (Mark, CEO)
         
@@ -594,7 +595,7 @@ class DependencyExtractor:
         
         return results
     
-    def _extract_passive(self, doc: Doc) -> List[DependencyTriple]:
+    def _extract_passive(self, doc: Any) -> List[DependencyTriple]:  # doc: Doc
         """
         Pattern E: passive voice with agent flipping
         
@@ -634,7 +635,7 @@ class DependencyExtractor:
         
         return results
     
-    def _extract_coordination(self, doc: Doc) -> List[DependencyTriple]:
+    def _extract_coordination(self, doc: Any) -> List[DependencyTriple]:  # doc: Doc
         """
         Pattern F: coordination expansion (and/or)
         
@@ -676,7 +677,7 @@ class DependencyExtractor:
         
         return results
     
-    def _extract_nested_clauses(self, doc: Doc) -> List[DependencyTriple]:
+    def _extract_nested_clauses(self, doc: Any) -> List[DependencyTriple]:  # doc: Doc
         """
         Pattern G: nested clauses (ccomp/xcomp/advcl)
         
@@ -685,7 +686,7 @@ class DependencyExtractor:
         """
         results = []
         
-        def extract_from_token(token: Token, sent: Span, depth: int = 0):
+        def extract_from_token(token: Any, sent: Any, depth: int = 0):  # token: Token, sent: Span
             """Recursively extract from token and its embedded clauses."""
             if depth > 3:  # Prevent infinite recursion
                 return []
@@ -730,7 +731,7 @@ class DependencyExtractor:
         
         return results
     
-    def _extract_relative_clauses(self, doc: Doc) -> List[DependencyTriple]:
+    def _extract_relative_clauses(self, doc: Any) -> List[DependencyTriple]:  # doc: Doc
         """
         Pattern H: relative clauses (relcl)
         

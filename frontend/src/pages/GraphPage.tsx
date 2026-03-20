@@ -1,6 +1,3 @@
-import { useState, useEffect } from 'react';
-import { useAuth } from '../auth-context';
-
 // TODO: Install react-flow-renderer
 // npm install reactflow
 
@@ -10,9 +7,6 @@ import { useAuth } from '../auth-context';
 // 3. Implement the visualization
 
 export default function GraphPage() {
-  const { user } = useAuth();
-  const [loading, setLoading] = useState(true);
-
   return (
     <div className="h-screen bg-surface-950 text-white p-6">
       <div className="max-w-7xl mx-auto">

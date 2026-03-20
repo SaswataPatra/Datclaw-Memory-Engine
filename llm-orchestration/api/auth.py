@@ -9,15 +9,24 @@ from typing import Optional, Dict, Any
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from pydantic import BaseModel, Field, EmailStr
 
 logger = logging.getLogger(__name__)
 
 security = HTTPBearer()
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# bcrypt has a 72-byte password limit; truncate consistently (passlib did this implicitly).
+BCRYPT_MAX_BYTES = 72
+
+
+def _password_bytes(password: str) -> bytes:
+    b = password.encode("utf-8")
+    if len(b) > BCRYPT_MAX_BYTES:
+        logger.warning("Password truncated to %s bytes for bcrypt", BCRYPT_MAX_BYTES)
+        return b[:BCRYPT_MAX_BYTES]
+    return b
 
 DEFAULT_SECRET_KEY = "dappy-dev-secret-change-in-production"
 DEFAULT_ALGORITHM = "HS256"
@@ -74,10 +83,18 @@ class AuthManager:
             logger.info("Created 'users' collection with unique indexes")
 
     def _hash_password(self, password: str) -> str:
-        return pwd_context.hash(password)
+        """Hash with bcrypt (compatible with hashes produced by passlib)."""
+        raw = bcrypt.hashpw(_password_bytes(password), bcrypt.gensalt())
+        return raw.decode("ascii")
 
     def _verify_password(self, plain: str, hashed: str) -> bool:
-        return pwd_context.verify(plain, hashed)
+        try:
+            return bcrypt.checkpw(
+                _password_bytes(plain),
+                hashed.encode("ascii"),
+            )
+        except (ValueError, TypeError):
+            return False
 
     def _create_token(self, user_id: str, username: str) -> tuple[str, int]:
         expires_delta = timedelta(minutes=self.token_expire_minutes)

@@ -5,6 +5,7 @@ Fetches and parses shared ChatGPT conversations from chatgpt.com/share/* URLs.
 """
 
 import logging
+import os
 import re
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -14,6 +15,12 @@ import httpx
 from .models import BaseParser, ConversationChunk
 
 logger = logging.getLogger(__name__)
+
+# Browser-like defaults; ChatGPT often returns 403 without cookies / real browser TLS.
+_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
 
 
 class ChatGPTShareParser(BaseParser):
@@ -68,31 +75,85 @@ class ChatGPTShareParser(BaseParser):
         
         return None
     
+    def _browser_headers(self, share_id: str, *, for_html: bool) -> Dict[str, str]:
+        share_url = f"https://chatgpt.com/share/{share_id}"
+        base: Dict[str, str] = {
+            "User-Agent": _UA,
+            "Accept-Language": "en-US,en;q=0.9",
+            "Origin": "https://chatgpt.com",
+            "Referer": share_url,
+            "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"macOS"',
+        }
+        if for_html:
+            base.update(
+                {
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Upgrade-Insecure-Requests": "1",
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "none",
+                    "Sec-Fetch-User": "?1",
+                }
+            )
+        else:
+            base.update(
+                {
+                    "Accept": "application/json, text/plain, */*",
+                    "Sec-Fetch-Dest": "empty",
+                    "Sec-Fetch-Mode": "cors",
+                    "Sec-Fetch-Site": "same-origin",
+                }
+            )
+        return base
+
     async def _fetch_conversation(self, share_id: str) -> Dict[str, Any]:
         """Fetch conversation JSON from ChatGPT backend API."""
         api_url = f"https://chatgpt.com/backend-api/share/{share_id}"
-        
-        # Add browser-like headers to avoid 403 Forbidden
-        # Don't set Accept-Encoding - let httpx handle compression automatically
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': f'https://chatgpt.com/share/{share_id}',
-            'Origin': 'https://chatgpt.com',
-        }
-        
-        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
+        share_url = f"https://chatgpt.com/share/{share_id}"
+
+        # Optional: paste browser Cookie header while logged in at chatgpt.com (dev only).
+        extra_cookie = (os.getenv("CHATGPT_SHARE_COOKIE") or "").strip()
+
+        async with httpx.AsyncClient(
+            timeout=self.timeout,
+            follow_redirects=True,
+            headers={"User-Agent": _UA},
+        ) as client:
             try:
-                response = await client.get(api_url, headers=headers)
+                # 1) Load public share page — often sets Cloudflare / session cookies for same client.
+                await client.get(share_url, headers=self._browser_headers(share_id, for_html=True))
+            except httpx.RequestError as e:
+                logger.warning("ChatGPT share page prefetch failed (continuing): %s", e)
+
+            api_headers = self._browser_headers(share_id, for_html=False)
+            if extra_cookie:
+                api_headers["Cookie"] = extra_cookie
+
+            try:
+                response = await client.get(api_url, headers=api_headers)
                 response.raise_for_status()
                 return response.json()
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
-                    raise ValueError(f"ChatGPT conversation not found: {share_id}")
-                raise ValueError(f"Failed to fetch ChatGPT conversation: {e}")
+                    raise ValueError(f"ChatGPT conversation not found: {share_id}") from e
+                if e.response.status_code == 403:
+                    raise ValueError(self._forbidden_help_message()) from e
+                raise ValueError(f"Failed to fetch ChatGPT conversation: {e}") from e
             except httpx.RequestError as e:
-                raise ValueError(f"Network error fetching ChatGPT conversation: {e}")
+                raise ValueError(f"Network error fetching ChatGPT conversation: {e}") from e
+
+    @staticmethod
+    def _forbidden_help_message() -> str:
+        return (
+            "ChatGPT returned 403 Forbidden (share API is often blocked for automated requests). "
+            "Try: (1) Set CHATGPT_SHARE_COOKIE in .env to a Cookie header copied from your browser "
+            "while logged in at chatgpt.com (same machine / dev only); "
+            "(2) Export the chat and use Session JSON or paste text import; "
+            "(3) Run import from a network that is not flagged. "
+            "See docs/TROUBLESHOOTING.md (ChatGPT share)."
+        )
     
     def _parse_conversation(self, data: Dict[str, Any]) -> List[ConversationChunk]:
         """
